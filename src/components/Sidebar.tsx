@@ -3,6 +3,7 @@ import {
   Bike,
   Compass,
   Download,
+  HardDrive,
   Loader2,
   MapPin,
   Navigation,
@@ -21,6 +22,15 @@ import type { GeocodeResult } from '../services/geocoding';
 import { searchPlaces } from '../services/geocoding';
 import { PRESET_TOURS } from '../data/presetTours';
 import { UndergroundBreakdown } from './UndergroundBreakdown';
+import {
+  clearTileCache,
+  getTileCacheStats,
+  getTileUrlsForRoute,
+  precacheRouteTiles,
+  type PrecacheProgress,
+  type TileCacheStats
+} from '../services/tileCache';
+import { clearDataCache, getDataCacheStats } from '../services/dataCache';
 
 interface SidebarProps {
   waypoints: Waypoint[];
@@ -81,6 +91,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [searchResults, setSearchResults] = useState<Record<number, GeocodeResult[]>>({});
   const [roundTripKm, setRoundTripKm] = useState(30);
   const [isSearchingIdx, setIsSearchingIdx] = useState<number | null>(null);
+
+  // Cache & Offline state
+  const [tileStats, setTileStats] = useState<TileCacheStats>({ tileCount: 0, estimatedSizeMb: 0 });
+  const [dataStats, setDataStats] = useState({ routeCount: 0, geocodeCount: 0, poiCount: 0, sizeKb: 0 });
+  const [precacheProgress, setPrecacheProgress] = useState<PrecacheProgress | null>(null);
+  const [isPrecaching, setIsPrecaching] = useState(false);
+
+  const refreshCacheStats = React.useCallback(async () => {
+    const ts = await getTileCacheStats();
+    setTileStats(ts);
+    const ds = getDataCacheStats();
+    setDataStats(ds);
+  }, []);
+
+  React.useEffect(() => {
+    refreshCacheStats();
+  }, [refreshCacheStats, activeTab]);
+
+  const handlePrecacheTour = async () => {
+    if (!route || route.coordinates.length === 0) return;
+    setIsPrecaching(true);
+    setPrecacheProgress({ total: 0, cached: 0, percent: 0, isComplete: false });
+
+    // Pick tile URL template for active base map
+    let tileUrlTemplate = 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png';
+    if (baseMap === 'osm') {
+      tileUrlTemplate = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    } else if (baseMap === 'opentopo') {
+      tileUrlTemplate = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
+    }
+
+    const urls = getTileUrlsForRoute(route.coordinates, tileUrlTemplate, 12, 15);
+    try {
+      await precacheRouteTiles(urls, progress => {
+        setPrecacheProgress(progress);
+      });
+      await refreshCacheStats();
+    } catch (err) {
+      console.error('Tile pre-caching failed:', err);
+    } finally {
+      setIsPrecaching(false);
+    }
+  };
+
+  const handleClearAllCache = async () => {
+    await clearTileCache();
+    clearDataCache();
+    await refreshCacheStats();
+    setPrecacheProgress(null);
+  };
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -702,6 +762,92 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-5 h-5 accent-emerald-600 cursor-pointer"
                 />
               </div>
+            </div>
+
+            {/* Offline Cache & Speicher Management */}
+            <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-emerald-600 text-white">
+                    <HardDrive className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">Offline-Karten & Cache</div>
+                    <div className="text-[10px] text-emerald-800">Schnellere Ladezeiten & Offline-Nutzung</div>
+                  </div>
+                </div>
+                <button
+                  onClick={handleClearAllCache}
+                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1"
+                  title="Gesamten Zwischenspeicher leeren"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Leeren
+                </button>
+              </div>
+
+              {/* Cache Stats Grid */}
+              <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100 shadow-sm">
+                  <div className="text-base font-extrabold text-emerald-700">{tileStats.tileCount}</div>
+                  <div className="text-[10px] text-slate-500">Kartenkacheln ({tileStats.estimatedSizeMb} MB)</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100 shadow-sm">
+                  <div className="text-base font-extrabold text-teal-700">
+                    {dataStats.routeCount + dataStats.geocodeCount + dataStats.poiCount}
+                  </div>
+                  <div className="text-[10px] text-slate-500">Routen & POIs ({dataStats.sizeKb} KB)</div>
+                </div>
+              </div>
+
+              {/* Pre-cache button for current route */}
+              {route && route.coordinates.length > 0 ? (
+                <div className="space-y-2">
+                  <button
+                    onClick={handlePrecacheTour}
+                    disabled={isPrecaching}
+                    className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {isPrecaching ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Kacheln werden heruntergeladen...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Offline-Karten für diese Tour laden</span>
+                      </>
+                    )}
+                  </button>
+
+                  {precacheProgress && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] text-emerald-900 font-semibold">
+                        <span>
+                          {precacheProgress.cached} / {precacheProgress.total} Kacheln
+                        </span>
+                        <span>{precacheProgress.percent}%</span>
+                      </div>
+                      <div className="w-full bg-emerald-200/60 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-emerald-600 h-1.5 rounded-full transition-all duration-200"
+                          style={{ width: `${precacheProgress.percent}%` }}
+                        ></div>
+                      </div>
+                      {precacheProgress.isComplete && (
+                        <div className="text-[10px] text-emerald-700 font-medium text-center pt-0.5">
+                          ✓ Kartenkorridor erfolgreich offline gespeichert!
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-[11px] text-slate-500 italic bg-white/70 p-2 rounded-xl text-center">
+                  Plane eine Route, um Offline-Karten für deinen Tour-Korridor vorzuladen.
+                </div>
+              )}
             </div>
           </div>
         )}
