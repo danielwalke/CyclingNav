@@ -2,6 +2,9 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { BaseMapId, BikePoi, BikeRoute, NavigationState, RouteColorMode, RouteCoordinate, RouteSegment, Waypoint } from '../types';
+import { createCachedTileLayer } from '../services/tileCache';
+
+
 
 interface MapProps {
   baseMap: BaseMapId;
@@ -80,7 +83,7 @@ export const Map: React.FC<MapProps> = ({
 
     // Initial base tile layer
     const config = TILE_LAYERS[baseMap];
-    baseTileLayerRef.current = L.tileLayer(config.url, {
+    baseTileLayerRef.current = createCachedTileLayer(config.url, {
       attribution: config.attr,
       maxZoom: config.maxZoom,
       subdomains: 'abc'
@@ -115,7 +118,7 @@ export const Map: React.FC<MapProps> = ({
     }
 
     const config = TILE_LAYERS[baseMap];
-    baseTileLayerRef.current = L.tileLayer(config.url, {
+    baseTileLayerRef.current = createCachedTileLayer(config.url, {
       attribution: config.attr,
       maxZoom: config.maxZoom,
       subdomains: 'abc'
@@ -129,7 +132,7 @@ export const Map: React.FC<MapProps> = ({
 
     if (showCycleOverlay) {
       if (!overlayTileLayerRef.current) {
-        overlayTileLayerRef.current = L.tileLayer(WAYMARKED_TRAILS_URL, {
+        overlayTileLayerRef.current = createCachedTileLayer(WAYMARKED_TRAILS_URL, {
           opacity: 0.8,
           maxZoom: 18,
           attribution: 'Radnetz &copy; <a href="https://cycling.waymarkedtrails.org">Waymarked Trails</a>'
@@ -142,6 +145,7 @@ export const Map: React.FC<MapProps> = ({
       }
     }
   }, [showCycleOverlay]);
+
 
   // Render Waypoints
   useEffect(() => {
