@@ -109,6 +109,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     refreshCacheStats();
   }, [refreshCacheStats, activeTab]);
 
+  // Keep search queries in sync when waypoints change externally (e.g. Preset Tour loaded, Route reversed, Clear route)
+  React.useEffect(() => {
+    setSearchQueries({});
+    setSearchResults({});
+  }, [waypoints]);
+
   const handlePrecacheTour = async () => {
     if (!route || route.coordinates.length === 0) return;
     setIsPrecaching(true);
@@ -155,11 +161,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setSearchResults(prev => ({ ...prev, [index]: [] }));
     }
   };
-
   const handleSelectResult = (index: number, res: GeocodeResult) => {
     onUpdateWaypoint(index, res.name, res.lat, res.lng);
     setSearchQueries(prev => ({ ...prev, [index]: res.name }));
     setSearchResults(prev => ({ ...prev, [index]: [] }));
+  };
+
+  const handleCommitSearch = async (index: number) => {
+    const query = (searchQueries[index] ?? '').trim();
+    if (query.length < 2) return;
+
+    // Check if query is already the waypoint name
+    if (query === waypoints[index]?.name) {
+      setSearchResults(prev => ({ ...prev, [index]: [] }));
+      return;
+    }
+
+    const cachedResults = searchResults[index];
+    if (cachedResults && cachedResults.length > 0) {
+      handleSelectResult(index, cachedResults[0]);
+      return;
+    }
+
+    setIsSearchingIdx(index);
+    const results = await searchPlaces(query);
+    setIsSearchingIdx(null);
+    if (results.length > 0) {
+      handleSelectResult(index, results[0]);
+    }
   };
 
   const formatDuration = (seconds: number) => {
@@ -376,6 +405,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           placeholder={isStart ? 'Startort in Deutschland...' : isEnd ? 'Zielort...' : `Zwischenstopp ${idx}...`}
                           value={query}
                           onChange={e => handleSearchChange(idx, e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleCommitSearch(idx);
+                            }
+                          }}
+                          onBlur={() => {
+                            // Delay slightly so clicking a dropdown item registers before blur triggers commit
+                            setTimeout(() => {
+                              handleCommitSearch(idx);
+                            }, 200);
+                          }}
                           className="flex-1 text-xs bg-transparent border-none outline-none font-medium text-slate-800 placeholder-slate-400"
                         />
 
@@ -400,8 +441,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           {results.map((r, rIdx) => (
                             <button
                               key={rIdx}
+                              onMouseDown={e => {
+                                e.preventDefault();
+                                handleSelectResult(idx, r);
+                              }}
                               onClick={() => handleSelectResult(idx, r)}
-                              className="w-full px-3 py-2 text-left hover:bg-emerald-50/70 transition-colors flex items-start gap-2"
+                              className="w-full px-3 py-2 text-left hover:bg-emerald-50/70 transition-colors flex items-start gap-2 cursor-pointer"
                             >
                               <MapPin className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
                               <div className="min-w-0">
