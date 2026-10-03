@@ -147,6 +147,8 @@ export interface PresetTour {
 export interface NavigationState {
   isActive: boolean;
   isSimulating: boolean;
+  trackingMode: 'gps' | 'simulation';
+  gpsAccuracy?: number;
   simSpeed: number; // multiplier e.g. 1x, 2x, 5x
   currentCoordIndex: number;
   currentPosition: [number, number] | null;

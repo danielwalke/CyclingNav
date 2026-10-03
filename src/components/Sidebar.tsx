@@ -54,7 +54,7 @@ interface SidebarProps {
   onClearRoute: () => void;
   onGenerateRoundTrip: (distanceKm: number) => void;
   onLoadPresetTour: (tour: PresetTour) => void;
-  onStartNavigation: () => void;
+  onStartNavigation: (mode?: 'gps' | 'simulation') => void;
   onExportGpx: () => void;
   onImportGpx: (file: File) => void;
 }
@@ -536,11 +536,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {/* Primary Action Buttons */}
                 <div className="pt-2 flex flex-col gap-2">
                   <button
-                    onClick={onStartNavigation}
+                    onClick={() => onStartNavigation('gps')}
                     className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition-all cursor-pointer"
                   >
                     <Navigation className="w-4 h-4 fill-white" />
-                    <span>Navigation & Tour starten</span>
+                    <span>Live GPS Navigation starten</span>
+                  </button>
+
+                  <button
+                    onClick={() => onStartNavigation('simulation')}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-emerald-400 border border-emerald-500/30 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Virtuelle Tour-Simulation abspielen</span>
                   </button>
 
                   <div className="grid grid-cols-2 gap-2">

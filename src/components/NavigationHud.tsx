@@ -13,9 +13,11 @@ import {
   Gauge,
   Maximize2,
   Minimize2,
+  Navigation,
   Pause,
   Play,
   RotateCcw,
+  Sparkles,
   Volume2,
   VolumeX,
   X
@@ -29,6 +31,7 @@ interface NavigationHudProps {
   onToggleVoice: () => void;
   onToggleVoiceLang: () => void;
   onStopNavigation: () => void;
+  onSwitchMode?: (mode: 'gps' | 'simulation') => void;
   instructions: RouteInstruction[];
 }
 
@@ -38,7 +41,7 @@ function getManeuverIcon(type?: ManeuverType) {
     case 'turn-slight-right':
       return <ArrowUpRight className={iconClass} />;
     case 'turn-right':
-    case 'turn-sharp-right':
+      case 'turn-sharp-right':
       return <ArrowRight className={iconClass} />;
     case 'turn-slight-left':
       return <ArrowUpLeft className={iconClass} />;
@@ -62,6 +65,7 @@ export const NavigationHud: React.FC<NavigationHudProps> = ({
   onToggleVoice,
   onToggleVoiceLang,
   onStopNavigation,
+  onSwitchMode,
   instructions
 }) => {
   const [isFullscreen, setIsFullscreen] = React.useState(false);
@@ -91,12 +95,38 @@ export const NavigationHud: React.FC<NavigationHudProps> = ({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
             </span>
-            <span className="font-semibold text-emerald-400 uppercase tracking-wider text-[11px]">
-              {navState.isSimulating ? 'GPS-Simulation Aktiv' : 'Fahrrad-Navigation'}
-            </span>
+            <div className="flex flex-col">
+              <span className="font-bold text-emerald-400 uppercase tracking-wider text-[11px] flex items-center gap-1">
+                {navState.trackingMode === 'gps' ? (
+                  <>
+                    <Navigation className="w-3 h-3 fill-emerald-400" />
+                    <span>Live GPS Navigation</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>Virtuelle Simulation</span>
+                  </>
+                )}
+              </span>
+              {navState.trackingMode === 'gps' && navState.gpsAccuracy && (
+                <span className="text-[10px] text-slate-400">
+                  Genauigkeit: ±{Math.round(navState.gpsAccuracy)}m
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5">
+            {onSwitchMode && (
+              <button
+                onClick={() => onSwitchMode(navState.trackingMode === 'gps' ? 'simulation' : 'gps')}
+                className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-300 transition-colors"
+                title={navState.trackingMode === 'gps' ? 'Auf Simulation wechseln' : 'Auf Live-GPS wechseln'}
+              >
+                {navState.trackingMode === 'gps' ? 'Sim' : 'GPS'}
+              </button>
+            )}
             <button
               onClick={onToggleVoiceLang}
               className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-300 uppercase transition-colors"
@@ -184,43 +214,62 @@ export const NavigationHud: React.FC<NavigationHudProps> = ({
           </div>
         </div>
 
-        {/* Simulation Player Controls */}
-        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-800/80">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onTogglePlay}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors shadow-lg shadow-emerald-900/40"
-            >
-              {navState.isSimulating ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              <span>{navState.isSimulating ? 'Pause' : 'Start'}</span>
-            </button>
-            <button
-              onClick={onResetNav}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-              title="Zum Start zurücksetzen"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Speed multiplier selector */}
-          <div className="flex items-center gap-1 bg-slate-800/80 rounded-xl p-1">
-            <FastForward className="w-3.5 h-3.5 text-slate-400 ml-1" />
-            {[1, 2, 5, 10].map(speed => (
+        {/* Bottom Navigation Controls: Simulation Player OR Live GPS Status */}
+        {navState.trackingMode === 'simulation' ? (
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-800/80">
+            <div className="flex items-center gap-2">
               <button
-                key={speed}
-                onClick={() => onSetSimSpeed(speed)}
-                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors ${
-                  navState.simSpeed === speed
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                onClick={onTogglePlay}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors shadow-lg shadow-emerald-900/40"
               >
-                {speed}x
+                {navState.isSimulating ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                <span>{navState.isSimulating ? 'Pause' : 'Start'}</span>
               </button>
-            ))}
+              <button
+                onClick={onResetNav}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                title="Zum Start zurücksetzen"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Speed multiplier selector */}
+            <div className="flex items-center gap-1 bg-slate-800/80 rounded-xl p-1">
+              <FastForward className="w-3.5 h-3.5 text-slate-400 ml-1" />
+              {[1, 2, 5, 10].map(speed => (
+                <button
+                  key={speed}
+                  onClick={() => onSetSimSpeed(speed)}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors ${
+                    navState.simSpeed === speed
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {speed}x
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-800/80 text-xs text-slate-300">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-[11px] font-medium text-emerald-300">
+                Echtzeit-GPS aktiv (Auto-Zentrierung & Routing-Snap)
+              </span>
+            </div>
+            {onSwitchMode && (
+              <button
+                onClick={() => onSwitchMode('simulation')}
+                className="text-[10px] text-slate-400 hover:text-emerald-400 underline cursor-pointer"
+              >
+                Simulation testen
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -60,16 +60,20 @@ test.describe('Bike Tour Germany App - End to End', () => {
     await page.goto('/');
     await expect(page.locator('text=Routendaten')).toBeVisible({ timeout: 15000 });
 
-    // Start navigation
-    const startNavBtn = page.getByRole('button', { name: 'Navigation & Tour starten' });
+    // Start live GPS navigation
+    const startNavBtn = page.getByRole('button', { name: 'Live GPS Navigation starten' });
     await startNavBtn.click();
 
-    // Verify Navigation HUD appears
-    await expect(page.locator('text=GPS-Simulation Aktiv')).toBeVisible({ timeout: 5000 });
+    // Verify Navigation HUD appears in Live GPS mode
+    await expect(page.getByText('Live GPS Navigation', { exact: true })).toBeVisible({ timeout: 5000 });
     await expect(page.locator('text=Tempo')).toBeVisible();
     await expect(page.locator('text=Rest')).toBeVisible();
     await expect(page.getByText('ETA', { exact: true })).toBeVisible();
 
+    // Switch to Virtuelle Simulation mode
+    const simSwitchBtn = page.getByRole('button', { name: 'Sim', exact: true });
+    await simSwitchBtn.click();
+    await expect(page.getByText('Virtuelle Simulation', { exact: true })).toBeVisible();
 
     // Test simulation speed multiplier
     const speed5xBtn = page.locator('button:has-text("5x")');
@@ -81,11 +85,11 @@ test.describe('Bike Tour Germany App - End to End', () => {
     await pauseBtn.click();
     await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible();
 
-
     // Close navigation
     const closeBtn = page.locator('button[title="Navigation beenden"]');
     await closeBtn.click();
-    await expect(page.locator('text=GPS-Simulation Aktiv')).not.toBeVisible();
+    await expect(page.getByText('Live GPS Navigation', { exact: true })).not.toBeVisible();
+    await expect(page.getByText('Virtuelle Simulation', { exact: true })).not.toBeVisible();
   });
 
   test('switches map layers and POI overlays', async ({ page }) => {

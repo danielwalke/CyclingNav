@@ -20,6 +20,7 @@ import { NavigationHud } from './components/NavigationHud';
 import { PoiOverlayControls } from './components/PoiOverlayControls';
 import {
   calculateBearing,
+  calculateDistance,
   fetchBRouterRoute,
   generateRoundTripWaypoints
 } from './services/routing';
@@ -71,11 +72,13 @@ export const App: React.FC = () => {
   const [navState, setNavState] = useState<NavigationState>({
     isActive: false,
     isSimulating: false,
+    trackingMode: 'gps',
+    gpsAccuracy: undefined,
     simSpeed: 2,
     currentCoordIndex: 0,
     currentPosition: null,
     heading: 0,
-    speedKmh: 18.0,
+    speedKmh: 0,
     remainingDistance: 0,
     remainingDuration: 0,
     currentInstruction: null,
@@ -345,12 +348,22 @@ export const App: React.FC = () => {
     reader.readAsText(file);
   };
 
+  const watchIdRef = React.useRef<number | null>(null);
+
   // Navigation Start / Stop
-  const handleStartNavigation = () => {
+  const handleStartNavigation = (mode: 'gps' | 'simulation' = 'gps') => {
     if (!route || route.coordinates.length < 2) return;
+
+    if (mode === 'gps' && !navigator.geolocation) {
+      alert('GPS / Geolokalisierung wird von diesem Browser nicht unterstützt. Wechsle auf Simulation.');
+      mode = 'simulation';
+    }
+
     setNavState({
       isActive: true,
-      isSimulating: true,
+      isSimulating: mode === 'simulation',
+      trackingMode: mode,
+      gpsAccuracy: undefined,
       simSpeed: 2,
       currentCoordIndex: 0,
       currentPosition: [route.coordinates[0].lat, route.coordinates[0].lng],
@@ -360,7 +373,7 @@ export const App: React.FC = () => {
         route.coordinates[1].lat,
         route.coordinates[1].lng
       ),
-      speedKmh: 18.0,
+      speedKmh: mode === 'simulation' ? 18.0 : 0,
       remainingDistance: route.distance,
       remainingDuration: route.duration,
       currentInstruction: route.instructions[0] || null,
@@ -369,25 +382,125 @@ export const App: React.FC = () => {
       voiceLang: 'de'
     });
 
-    // Voice announcement
     speechService.speak(
-      `Navigation gestartet. ${route.instructions[0]?.text || 'Dem Radweg folgen.'}`,
+      `Navigation gestartet im ${mode === 'gps' ? 'Live-GPS' : 'Simulations'}-Modus. ${route.instructions[0]?.text || 'Dem Radweg folgen.'}`,
       'de'
     );
   };
 
   const handleStopNavigation = () => {
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
     setNavState(prev => ({ ...prev, isActive: false, isSimulating: false }));
     speechService.cancel();
   };
 
+  // Real-time GPS tracking using navigator.geolocation.watchPosition
+  useEffect(() => {
+    if (!navState.isActive || navState.trackingMode !== 'gps' || !route) {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      return;
+    }
+
+    if (!navigator.geolocation) return;
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy;
+        const gpsSpeedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? pos.coords.speed * 3.6 : 0;
+        const heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) ? pos.coords.heading : 0;
+
+        // Snap to nearest route coordinate
+        let minD = Infinity;
+        let nearestIdx = 0;
+        for (let i = 0; i < route.coordinates.length; i++) {
+          const c = route.coordinates[i];
+          const dist = calculateDistance(lat, lng, c.lat, c.lng);
+          if (dist < minD) {
+            minD = dist;
+            nearestIdx = i;
+          }
+        }
+
+        const snappedCoord = route.coordinates[nearestIdx];
+        const distFromStart = snappedCoord?.distanceFromStart || 0;
+        const remainingDistance = Math.max(0, route.distance - distFromStart);
+        const estSpeedKmh = gpsSpeedKmh > 1 ? gpsSpeedKmh : 16;
+        const remainingDuration = Math.round(remainingDistance / (estSpeedKmh / 3.6));
+
+        // Find upcoming maneuver
+        let currentInstruction = route.instructions[0] || null;
+        let nextInstructionDistance = remainingDistance;
+
+        for (let i = 0; i < route.instructions.length; i++) {
+          const inst = route.instructions[i];
+          const instCoord = route.coordinates[inst.index];
+          const instDist = instCoord?.distanceFromStart || 0;
+          if (instDist >= distFromStart) {
+            currentInstruction = inst;
+            nextInstructionDistance = Math.round(instDist - distFromStart);
+            break;
+          }
+        }
+
+        // Voice trigger when approaching turn within 70m
+        if (
+          navState.voiceEnabled &&
+          nextInstructionDistance <= 70 &&
+          nextInstructionDistance > 15 &&
+          currentInstruction
+        ) {
+          speechService.speak(
+            `In ${nextInstructionDistance} Metern: ${currentInstruction.text}`,
+            navState.voiceLang
+          );
+        }
+
+        setNavState(prev => ({
+          ...prev,
+          currentPosition: [lat, lng],
+          gpsAccuracy: accuracy,
+          speedKmh: gpsSpeedKmh,
+          heading: heading || prev.heading,
+          currentCoordIndex: nearestIdx,
+          remainingDistance,
+          remainingDuration,
+          currentInstruction,
+          nextInstructionDistance
+        }));
+      },
+      err => {
+        console.warn('GPS watch error:', err);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000
+      }
+    );
+
+    return () => {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [navState.isActive, navState.trackingMode, route, navState.voiceEnabled, navState.voiceLang]);
+
   // Navigation simulation loop
   useEffect(() => {
-    if (!navState.isActive || !navState.isSimulating || !route) return;
+    if (!navState.isActive || !navState.isSimulating || navState.trackingMode !== 'simulation' || !route) return;
 
     const interval = setInterval(() => {
       setNavState(prev => {
-        if (!prev.isActive || !prev.isSimulating) return prev;
+        if (!prev.isActive || !prev.isSimulating || prev.trackingMode !== 'simulation') return prev;
 
         const nextIdx = prev.currentCoordIndex + prev.simSpeed;
         if (nextIdx >= route.coordinates.length) {
@@ -456,7 +569,7 @@ export const App: React.FC = () => {
     }, 250);
 
     return () => clearInterval(interval);
-  }, [navState.isActive, navState.isSimulating, route]);
+  }, [navState.isActive, navState.isSimulating, navState.trackingMode, route]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 font-sans text-slate-800">
@@ -537,6 +650,23 @@ export const App: React.FC = () => {
               setNavState(prev => ({ ...prev, voiceLang: prev.voiceLang === 'de' ? 'en' : 'de' }))
             }
             onStopNavigation={handleStopNavigation}
+            onSwitchMode={mode => {
+              if (mode === 'simulation') {
+                setNavState(prev => ({
+                  ...prev,
+                  trackingMode: 'simulation',
+                  isSimulating: true,
+                  speedKmh: 18.0
+                }));
+              } else {
+                setNavState(prev => ({
+                  ...prev,
+                  trackingMode: 'gps',
+                  isSimulating: false,
+                  speedKmh: 0
+                }));
+              }
+            }}
             instructions={route?.instructions || []}
           />
         )}

@@ -173,7 +173,7 @@ describe('Bike Tour Routing & Geocoding Service', () => {
     expect(retrieved).toBeDefined();
     expect(retrieved?.distance).toBe(1200);
 
-    setCachedGeocode('Berlin Hbf', [{ name: 'Berlin Hauptbahnhof', lat: 52.525, lng: 13.369 }]);
+    setCachedGeocode('Berlin Hbf', [{ name: 'Berlin Hauptbahnhof', detail: 'Berlin, Deutschland', lat: 52.525, lng: 13.369 }]);
     const geo = getCachedGeocode('Berlin Hbf');
     expect(geo).toHaveLength(1);
     expect(geo?.[0].lat).toBeCloseTo(52.525);
