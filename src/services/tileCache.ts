@@ -1,4 +1,3 @@
-import L from 'leaflet';
 import type { RouteCoordinate } from '../types';
 
 export const TILE_CACHE_NAME = 'bike-tour-tiles-v1';
@@ -143,77 +142,4 @@ export async function clearTileCache(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-// Custom Leaflet TileLayer that transparently checks CacheStorage first
-export const CachedTileLayer = L.TileLayer.extend({
-  createTile(coords: { x: number; y: number; z: number }, done: (error?: Error, tile?: HTMLImageElement) => void) {
-    const tile = document.createElement('img');
-    tile.setAttribute('role', 'presentation');
-
-    const url = (this as any).getTileUrl(coords);
-
-    // If Cache API not supported, fallback to standard image load
-    if (typeof window === 'undefined' || !('caches' in window)) {
-      tile.onload = () => done(undefined, tile);
-      tile.onerror = () => done(new Error('Tile load error'), tile);
-      tile.src = url;
-      return tile;
-    }
-
-    // Cache-First strategy with transparent background saving
-    caches
-      .open(TILE_CACHE_NAME)
-      .then(async cache => {
-        const cachedResponse = await cache.match(url);
-        if (cachedResponse) {
-          const blob = await cachedResponse.blob();
-          tile.onload = () => {
-            URL.revokeObjectURL(tile.src);
-            done(undefined, tile);
-          };
-          tile.onerror = () => done(new Error('Cached tile load error'), tile);
-          tile.src = URL.createObjectURL(blob);
-        } else {
-          // Fetch from network and save clone in cache
-          fetch(url, { mode: 'cors' })
-            .then(async response => {
-              if (response.ok) {
-                cache.put(url, response.clone()).catch(() => {});
-                const blob = await response.blob();
-                tile.onload = () => {
-                  URL.revokeObjectURL(tile.src);
-                  done(undefined, tile);
-                };
-                tile.onerror = () => done(new Error('Tile load error'), tile);
-                tile.src = URL.createObjectURL(blob);
-              } else {
-                tile.src = url;
-                tile.onload = () => done(undefined, tile);
-                tile.onerror = () => done(new Error('Tile load error'), tile);
-              }
-            })
-            .catch(() => {
-              // Direct fallback
-              tile.src = url;
-              tile.onload = () => done(undefined, tile);
-              tile.onerror = () => done(new Error('Tile load error'), tile);
-            });
-        }
-      })
-      .catch(() => {
-        tile.src = url;
-        tile.onload = () => done(undefined, tile);
-        tile.onerror = () => done(new Error('Tile load error'), tile);
-      });
-
-    return tile;
-  }
-});
-
-export function createCachedTileLayer(
-  url: string,
-  options: L.TileLayerOptions
-): L.TileLayer {
-  return new (CachedTileLayer as any)(url, options);
 }

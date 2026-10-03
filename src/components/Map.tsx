@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { BaseMapId, BikePoi, BikeRoute, NavigationState, RouteColorMode, RouteCoordinate, RouteSegment, Waypoint } from '../types';
-import { createCachedTileLayer } from '../services/tileCache';
+import { createCachedTileLayer } from '../services/cachedTileLayer';
 
 
 

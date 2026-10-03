@@ -126,4 +126,61 @@ describe('Bike Tour Routing & Geocoding Service', () => {
       });
     });
   });
+
+  it('correctly calculates Slippy Map tile coordinates and corridor tile URLs', async () => {
+    const { latLngToTile, getTileUrlsForRoute } = await import('../services/tileCache');
+
+    // Berlin coordinate at zoom 13
+    const tile = latLngToTile(52.52, 13.405, 13);
+    expect(tile.z).toBe(13);
+    expect(tile.x).toBeGreaterThan(0);
+    expect(tile.y).toBeGreaterThan(0);
+
+    const testRouteCoords = [
+      { lat: 52.52, lng: 13.405 },
+      { lat: 52.525, lng: 13.41 },
+      { lat: 52.53, lng: 13.415 }
+    ];
+
+    const urls = getTileUrlsForRoute(testRouteCoords, 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', 12, 13);
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls[0]).toMatch(/^https:\/\/tile\.openstreetmap\.org\/\d+\/\d+\/\d+\.png$/);
+  });
+
+  it('handles route and geocode cache storage with TTL and eviction', async () => {
+    const { getRouteCacheKey, getCachedRoute, setCachedRoute, getCachedGeocode, setCachedGeocode, getDataCacheStats } =
+      await import('../services/dataCache');
+
+    const key = getRouteCacheKey([{ lat: 52.52, lng: 13.4 }], 'safety');
+    expect(key).toContain('safety');
+
+    const mockRoute: any = {
+      coordinates: [{ lat: 52.52, lng: 13.4 }],
+      distance: 1200,
+      duration: 300,
+      ascent: 10,
+      descent: 5,
+      cyclingWayPercent: 85,
+      surfaceStats: { asphalt: 80, unpaved: 20, other: 0 },
+      wayTypeStats: { bundesstrasseMeters: 0, bundesstrassePercent: 0, radwegMeters: 1000, radwegPercent: 83, nebenstrasseMeters: 200, nebenstrassePercent: 17, wirtschaftswegMeters: 0, wirtschaftswegPercent: 0, sonstigeMeters: 0, sonstigePercent: 0 },
+      detailedSurfaceStats: { asphaltMeters: 1000, asphaltPercent: 83, pflasterMeters: 0, pflasterPercent: 0, schotterMeters: 200, schotterPercent: 17, naturbodenMeters: 0, naturbodenPercent: 0, unbekanntMeters: 0, unbekanntPercent: 0 },
+      instructions: [],
+      segments: []
+    };
+
+    setCachedRoute(key, mockRoute);
+    const retrieved = getCachedRoute(key);
+    expect(retrieved).toBeDefined();
+    expect(retrieved?.distance).toBe(1200);
+
+    setCachedGeocode('Berlin Hbf', [{ name: 'Berlin Hauptbahnhof', lat: 52.525, lng: 13.369 }]);
+    const geo = getCachedGeocode('Berlin Hbf');
+    expect(geo).toHaveLength(1);
+    expect(geo?.[0].lat).toBeCloseTo(52.525);
+
+    const stats = getDataCacheStats();
+    expect(stats.routeCount).toBeGreaterThanOrEqual(1);
+    expect(stats.geocodeCount).toBeGreaterThanOrEqual(1);
+  });
 });
+

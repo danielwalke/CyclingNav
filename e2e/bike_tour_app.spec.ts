@@ -140,5 +140,26 @@ test.describe('Bike Tour Germany App - End to End', () => {
     await bySurfaceBtn.click();
     await expect(bySurfaceBtn).toHaveClass(/bg-emerald-600/);
   });
+
+  test('verifies offline map caching UI and pre-caching button', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('text=Routendaten')).toBeVisible({ timeout: 15000 });
+
+    // Open Karten tab
+    await page.click('button:has-text("Karten")');
+
+    // Verify Offline-Karten & Cache section
+    await expect(page.locator('text=Offline-Karten & Cache')).toBeVisible();
+    await expect(page.locator('text=Kartenkacheln')).toBeVisible();
+    await expect(page.locator('text=Routen & POIs')).toBeVisible();
+
+    // Verify Pre-cache button is available for active route
+    const precacheBtn = page.locator('button:has-text("Offline-Karten für diese Tour laden")');
+    await expect(precacheBtn).toBeVisible();
+
+    // Verify Clear Cache button exists
+    const clearBtn = page.locator('button:has-text("Leeren")');
+    await expect(clearBtn).toBeVisible();
+  });
 });
 

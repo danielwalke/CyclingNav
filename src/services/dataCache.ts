@@ -13,15 +13,27 @@ interface CacheEnvelope<T> {
   ttl: number;
 }
 
+// In-memory fallback if localStorage is unavailable (e.g. Node tests, incognito restrictions)
+const memoryStore = new Map<string, string>();
+
 function getFromStorage<T>(key: string): T | null {
-  if (typeof window === 'undefined' || !window.localStorage) return null;
   try {
-    const raw = localStorage.getItem(key);
+    let raw: string | null = null;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      raw = localStorage.getItem(key);
+    } else {
+      raw = memoryStore.get(key) || null;
+    }
+
     if (!raw) return null;
     const envelope: CacheEnvelope<T> = JSON.parse(raw);
     const now = Date.now();
     if (now - envelope.timestamp > envelope.ttl) {
-      localStorage.removeItem(key);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem(key);
+      } else {
+        memoryStore.delete(key);
+      }
       return null;
     }
     return envelope.data;
@@ -31,14 +43,18 @@ function getFromStorage<T>(key: string): T | null {
 }
 
 function setToStorage<T>(key: string, data: T, ttlMs = DEFAULT_TTL_MS): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     const envelope: CacheEnvelope<T> = {
       data,
       timestamp: Date.now(),
       ttl: ttlMs
     };
-    localStorage.setItem(key, JSON.stringify(envelope));
+    const serialized = JSON.stringify(envelope);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(key, serialized);
+    } else {
+      memoryStore.set(key, serialized);
+    }
   } catch (err) {
     // If quota exceeded, clear older biketour cache items
     console.warn('LocalStorage quota notice, cleaning old cache:', err);
@@ -47,22 +63,24 @@ function setToStorage<T>(key: string, data: T, ttlMs = DEFAULT_TTL_MS): void {
 }
 
 function cleanOldCache(): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (
-        key &&
-        (key.startsWith(ROUTE_CACHE_PREFIX) ||
-          key.startsWith(GEOCODE_CACHE_PREFIX) ||
-          key.startsWith(POI_CACHE_PREFIX))
-      ) {
-        keysToRemove.push(key);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (
+          key &&
+          (key.startsWith(ROUTE_CACHE_PREFIX) ||
+            key.startsWith(GEOCODE_CACHE_PREFIX) ||
+            key.startsWith(POI_CACHE_PREFIX))
+        ) {
+          keysToRemove.push(key);
+        }
       }
+      keysToRemove.slice(0, Math.ceil(keysToRemove.length / 2)).forEach(k => localStorage.removeItem(k));
+    } else {
+      memoryStore.clear();
     }
-    // Delete oldest 50%
-    keysToRemove.slice(0, Math.ceil(keysToRemove.length / 2)).forEach(k => localStorage.removeItem(k));
   } catch {
     // ignore
   }
@@ -109,27 +127,39 @@ export function getDataCacheStats(): { routeCount: number; geocodeCount: number;
   let poiCount = 0;
   let totalChars = 0;
 
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return { routeCount: 0, geocodeCount: 0, poiCount: 0, sizeKb: 0 };
-  }
-
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (key.startsWith(ROUTE_CACHE_PREFIX)) {
+          routeCount++;
+          totalChars += (localStorage.getItem(key) || '').length;
+        } else if (key.startsWith(GEOCODE_CACHE_PREFIX)) {
+          geocodeCount++;
+          totalChars += (localStorage.getItem(key) || '').length;
+        } else if (key.startsWith(POI_CACHE_PREFIX)) {
+          poiCount++;
+          totalChars += (localStorage.getItem(key) || '').length;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  } else {
+    // Memory store fallback
+    memoryStore.forEach((val, key) => {
       if (key.startsWith(ROUTE_CACHE_PREFIX)) {
         routeCount++;
-        totalChars += (localStorage.getItem(key) || '').length;
+        totalChars += val.length;
       } else if (key.startsWith(GEOCODE_CACHE_PREFIX)) {
         geocodeCount++;
-        totalChars += (localStorage.getItem(key) || '').length;
+        totalChars += val.length;
       } else if (key.startsWith(POI_CACHE_PREFIX)) {
         poiCount++;
-        totalChars += (localStorage.getItem(key) || '').length;
+        totalChars += val.length;
       }
-    }
-  } catch {
-    // ignore
+    });
   }
 
   return {
@@ -141,18 +171,21 @@ export function getDataCacheStats(): { routeCount: number; geocodeCount: number;
 }
 
 export function clearDataCache(): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  const keysToRemove: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (
-      key &&
-      (key.startsWith(ROUTE_CACHE_PREFIX) ||
-        key.startsWith(GEOCODE_CACHE_PREFIX) ||
-        key.startsWith(POI_CACHE_PREFIX))
-    ) {
-      keysToRemove.push(key);
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (
+        key &&
+        (key.startsWith(ROUTE_CACHE_PREFIX) ||
+          key.startsWith(GEOCODE_CACHE_PREFIX) ||
+          key.startsWith(POI_CACHE_PREFIX))
+      ) {
+        keysToRemove.push(key);
+      }
     }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } else {
+    memoryStore.clear();
   }
-  keysToRemove.forEach(k => localStorage.removeItem(k));
 }
