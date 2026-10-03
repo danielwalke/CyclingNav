@@ -1,3 +1,5 @@
+import { getCachedGeocode, setCachedGeocode } from './dataCache';
+
 export interface GeocodeResult {
   name: string;
   detail: string;
@@ -7,6 +9,11 @@ export interface GeocodeResult {
 
 export async function searchPlaces(query: string): Promise<GeocodeResult[]> {
   if (!query || query.trim().length < 2) return [];
+
+  const cached = getCachedGeocode(query);
+  if (cached && cached.length > 0) {
+    return cached;
+  }
 
   // Germany Bounding Box: lon: 5.866 to 15.042, lat: 47.270 to 55.058
   const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(
@@ -19,7 +26,7 @@ export async function searchPlaces(query: string): Promise<GeocodeResult[]> {
     const data = await res.json();
 
     if (data.features && data.features.length > 0) {
-      return data.features.map((f: any) => {
+      const results: GeocodeResult[] = data.features.map((f: any) => {
         const p = f.properties || {};
         const [lng, lat] = f.geometry.coordinates;
 
@@ -40,8 +47,12 @@ export async function searchPlaces(query: string): Promise<GeocodeResult[]> {
           lng
         };
       });
+
+      setCachedGeocode(query, results);
+      return results;
     }
   } catch (err) {
+
     console.warn('Photon geocoding failed, trying Nominatim fallback:', err);
   }
 

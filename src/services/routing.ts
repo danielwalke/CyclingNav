@@ -12,6 +12,8 @@ import type {
   WayTypeCategory,
   WayTypeStats
 } from '../types';
+import { getCachedRoute, getRouteCacheKey, setCachedRoute } from './dataCache';
+
 
 
 export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -436,12 +438,19 @@ export function parseRouteSegments(
 
 
 export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProfile = 'safety'): Promise<BikeRoute> {
+  const cacheKey = getRouteCacheKey(waypoints, profile);
+  const cached = getCachedRoute(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const lonlats = waypoints.map(w => `${w.lng.toFixed(6)},${w.lat.toFixed(6)}`).join('|');
   const brouterProfile = profile === 'fastbike' ? 'fastbike' : profile === 'gravel' ? 'gravel' : profile === 'trekking' ? 'trekking' : 'safety';
   const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=${brouterProfile}&format=geojson`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12000);
+
 
   try {
     const res = await fetch(url, { signal: controller.signal });
@@ -521,7 +530,7 @@ export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProf
     const cyclingWayPercent = Math.min(99, Math.max(40, Math.round((cyclingMeters / Math.max(1, distance)) * 100)));
     const instructions = synthesizeTurnInstructions(coordinates, waypoints);
 
-    return {
+    const routeResult: BikeRoute = {
       id: `route-${Date.now()}`,
       name: `${waypoints[0]?.name || 'Start'} nach ${waypoints[waypoints.length - 1]?.name || 'Ziel'}`,
       coordinates,
@@ -538,7 +547,11 @@ export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProf
       profile,
       waypoints
     };
+
+    setCachedRoute(cacheKey, routeResult);
+    return routeResult;
   } catch (err) {
+
     console.warn('BRouter failed, attempting FOSSGIS OSRM bike server fallback:', err);
     return fetchOsrmBikeRoute(waypoints, profile);
   }

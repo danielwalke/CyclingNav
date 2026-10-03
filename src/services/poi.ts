@@ -1,4 +1,5 @@
 import type { BikePoi, PoiType } from '../types';
+import { getCachedPois, setCachedPois } from './dataCache';
 
 export async function fetchPoisInBounds(
   south: number,
@@ -10,6 +11,13 @@ export async function fetchPoisInBounds(
   // If bounds too large (e.g. whole Germany), skip to avoid Overpass rate limit
   if (Math.abs(north - south) > 0.6 || Math.abs(east - west) > 0.6) {
     return [];
+  }
+
+  const sortedTypes = [...selectedTypes].sort().join(',');
+  const cacheKey = `${south.toFixed(3)},${west.toFixed(3)},${north.toFixed(3)},${east.toFixed(3)}_${sortedTypes}`;
+  const cached = getCachedPois(cacheKey);
+  if (cached) {
+    return cached;
   }
 
   const queries: string[] = [];
@@ -78,6 +86,7 @@ export async function fetchPoisInBounds(
       });
     });
 
+    setCachedPois(cacheKey, pois);
     return pois;
   } catch (err) {
     console.warn('Overpass POI fetch failed or timed out:', err);
