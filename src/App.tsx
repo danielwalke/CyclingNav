@@ -7,9 +7,12 @@ import type {
   NavigationState,
   PoiType,
   PresetTour,
+  RouteColorMode,
   RouteCoordinate,
+  RouteSegment,
   Waypoint
 } from './types';
+
 import { Map } from './components/Map';
 import { Sidebar } from './components/Sidebar';
 import { ElevationProfile } from './components/ElevationProfile';
@@ -49,9 +52,12 @@ export const App: React.FC = () => {
   const [profile, setProfile] = useState<BikeProfile>('safety');
   const [baseMap, setBaseMap] = useState<BaseMapId>('cyclosm');
   const [showCycleOverlay, setShowCycleOverlay] = useState<boolean>(true);
+  const [colorMode, setColorMode] = useState<RouteColorMode>('waytype');
+  const [hoveredSegment, setHoveredSegment] = useState<RouteSegment | null>(null);
   const [route, setRoute] = useState<BikeRoute | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState<boolean>(false);
   const [hoveredCoord, setHoveredCoord] = useState<RouteCoordinate | null>(null);
+
 
   // POI state
   const [selectedPois, setSelectedPois] = useState<PoiType[]>(['repair', 'water']);
@@ -308,10 +314,27 @@ export const App: React.FC = () => {
               descent: 50,
               cyclingWayPercent: 90,
               surfaceStats: { asphalt: 85, paved: 10, gravel: 5, unpaved: 0, other: 0 },
+              wayTypeStats: {
+                radwegMeters: Math.round(parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000),
+                nebenstrasseMeters: 0,
+                wirtschaftswegMeters: 0,
+                landesstrasseMeters: 0,
+                bundesstrasseMeters: 0,
+                sonstigeMeters: 0
+              },
+              detailedSurfaceStats: {
+                asphaltMeters: Math.round((parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000) * 0.85),
+                pflasterMeters: Math.round((parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000) * 0.1),
+                schotterMeters: Math.round((parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000) * 0.05),
+                naturMeters: 0,
+                sonstigeMeters: 0
+              },
+              segments: [],
               instructions: [],
               profile: 'safety',
               waypoints: parsed.waypoints
             };
+
             setRoute(importedRoute);
           }
         } catch (err) {
@@ -458,12 +481,17 @@ export const App: React.FC = () => {
           baseMap={baseMap}
           showCycleOverlay={showCycleOverlay}
           isLoading={isLoadingRoute}
+          colorMode={colorMode}
+          hoveredSegment={hoveredSegment}
           onSetProfile={newProf => {
             setProfile(newProf);
             computeRoute(waypoints, newProf);
           }}
           onSetBaseMap={setBaseMap}
           onToggleCycleOverlay={() => setShowCycleOverlay(prev => !prev)}
+          onSetColorMode={setColorMode}
+          onHoverSegment={setHoveredSegment}
+          onSelectSegment={seg => setHoveredSegment(seg)}
           onUpdateWaypoint={handleUpdateWaypoint}
           onAddWaypoint={handleAddWaypoint}
           onRemoveWaypoint={handleRemoveWaypoint}
@@ -522,9 +550,12 @@ export const App: React.FC = () => {
           hoveredCoord={hoveredCoord}
           navigationState={navState}
           pois={pois}
+          colorMode={colorMode}
+          hoveredSegment={hoveredSegment}
           onMapClick={handleMapClick}
           onWaypointMove={handleWaypointMove}
         />
+
 
         {/* Elevation Profile Chart */}
         {route && !navState.isActive && (

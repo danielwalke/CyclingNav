@@ -39,7 +39,38 @@ describe('Bike Tour Routing & Geocoding Service', () => {
     expect(route.cyclingWayPercent).toBeGreaterThan(60); // High cycling percentage
     expect(route.surfaceStats.asphalt).toBeGreaterThan(50);
     expect(route.instructions.length).toBeGreaterThan(0);
+    expect(route.segments.length).toBeGreaterThan(0);
+    expect(route.wayTypeStats).toBeDefined();
+    expect(route.detailedSurfaceStats).toBeDefined();
   });
+
+  it('correctly classifies Bundesstraße, cycleway, and surface tags', async () => {
+    const { classifySegmentTags } = await import('../services/routing');
+
+    // Bundesstraße
+    const bTag = classifySegmentTags('highway=primary ref=B172 surface=asphalt');
+    expect(bTag.isBundesstrasse).toBe(true);
+    expect(bTag.wayType).toBe('bundesstrasse');
+    expect(bTag.ref).toBe('B172');
+    expect(bTag.surface).toBe('asphalt');
+
+    // Cycleway
+    const cTag = classifySegmentTags('highway=cycleway surface=asphalt bicycle=designated');
+    expect(cTag.isCycleway).toBe(true);
+    expect(cTag.wayType).toBe('radweg');
+    expect(cTag.surface).toBe('asphalt');
+
+    // Cobblestone / Pflaster
+    const pTag = classifySegmentTags('highway=residential surface=sett');
+    expect(pTag.wayType).toBe('nebenstrasse');
+    expect(pTag.surface).toBe('pflaster');
+
+    // Gravel / Track
+    const gTag = classifySegmentTags('highway=track surface=gravel');
+    expect(gTag.wayType).toBe('wirtschaftsweg');
+    expect(gTag.surface).toBe('schotter');
+  });
+
 
   it('generates a round trip loop of specified distance', () => {
     const centerLat = 52.52;

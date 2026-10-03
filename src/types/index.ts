@@ -46,6 +46,53 @@ export interface SurfaceStats {
   other: number;
 }
 
+export type WayTypeCategory =
+  | 'radweg'
+  | 'nebenstrasse'
+  | 'wirtschaftsweg'
+  | 'landesstrasse'
+  | 'bundesstrasse'
+  | 'sonstige';
+
+export type SurfaceCategory =
+  | 'asphalt'
+  | 'pflaster'
+  | 'schotter'
+  | 'natur'
+  | 'sonstige';
+
+export interface RouteSegment {
+  id: string;
+  fromKm: number;
+  toKm: number;
+  distanceMeters: number;
+  wayType: WayTypeCategory;
+  wayTypeName: string;
+  surface: SurfaceCategory;
+  surfaceName: string;
+  ref?: string;
+  coordinates: [number, number][]; // [lat, lng]
+  isBundesstrasse: boolean;
+  isCycleway: boolean;
+}
+
+export interface WayTypeStats {
+  radwegMeters: number;
+  nebenstrasseMeters: number;
+  wirtschaftswegMeters: number;
+  landesstrasseMeters: number;
+  bundesstrasseMeters: number;
+  sonstigeMeters: number;
+}
+
+export interface DetailedSurfaceStats {
+  asphaltMeters: number;
+  pflasterMeters: number;
+  schotterMeters: number;
+  naturMeters: number;
+  sonstigeMeters: number;
+}
+
 export interface BikeRoute {
   id: string;
   name: string;
@@ -56,12 +103,16 @@ export interface BikeRoute {
   descent: number; // in meters
   cyclingWayPercent: number; // percentage on dedicated cycleways / quiet tracks
   surfaceStats: SurfaceStats;
+  wayTypeStats: WayTypeStats;
+  detailedSurfaceStats: DetailedSurfaceStats;
+  segments: RouteSegment[];
   instructions: RouteInstruction[];
   profile: BikeProfile;
   waypoints: Waypoint[];
 }
 
 export type BaseMapId = 'cyclosm' | 'osm' | 'opentopo';
+export type RouteColorMode = 'default' | 'waytype' | 'surface';
 
 export interface MapLayerConfig {
   id: BaseMapId;

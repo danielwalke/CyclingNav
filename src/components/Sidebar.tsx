@@ -16,11 +16,11 @@ import {
   Upload,
   Zap
 } from 'lucide-react';
-import type { BikeProfile, BikeRoute, BaseMapId, PresetTour, Waypoint } from '../types';
+import type { BikeProfile, BikeRoute, BaseMapId, PresetTour, RouteColorMode, RouteSegment, Waypoint } from '../types';
 import type { GeocodeResult } from '../services/geocoding';
 import { searchPlaces } from '../services/geocoding';
 import { PRESET_TOURS } from '../data/presetTours';
-
+import { UndergroundBreakdown } from './UndergroundBreakdown';
 
 interface SidebarProps {
   waypoints: Waypoint[];
@@ -29,9 +29,14 @@ interface SidebarProps {
   baseMap: BaseMapId;
   showCycleOverlay: boolean;
   isLoading: boolean;
+  colorMode: RouteColorMode;
+  hoveredSegment: RouteSegment | null;
   onSetProfile: (profile: BikeProfile) => void;
   onSetBaseMap: (map: BaseMapId) => void;
   onToggleCycleOverlay: () => void;
+  onSetColorMode: (mode: RouteColorMode) => void;
+  onHoverSegment: (segment: RouteSegment | null) => void;
+  onSelectSegment: (segment: RouteSegment) => void;
   onUpdateWaypoint: (index: number, name: string, lat: number, lng: number) => void;
   onAddWaypoint: () => void;
   onRemoveWaypoint: (index: number) => void;
@@ -44,6 +49,7 @@ interface SidebarProps {
   onImportGpx: (file: File) => void;
 }
 
+
 export const Sidebar: React.FC<SidebarProps> = ({
   waypoints,
   route,
@@ -51,9 +57,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   baseMap,
   showCycleOverlay,
   isLoading,
+  colorMode,
+  hoveredSegment,
   onSetProfile,
   onSetBaseMap,
   onToggleCycleOverlay,
+  onSetColorMode,
+  onHoverSegment,
+  onSelectSegment,
   onUpdateWaypoint,
   onAddWaypoint,
   onRemoveWaypoint,
@@ -65,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onExportGpx,
   onImportGpx
 }) => {
-  const [activeTab, setActiveTab] = useState<'planner' | 'tours' | 'steps' | 'layers'>('planner');
+  const [activeTab, setActiveTab] = useState<'planner' | 'underground' | 'tours' | 'steps' | 'layers'>('planner');
   const [searchQueries, setSearchQueries] = useState<Record<number, string>>({});
   const [searchResults, setSearchResults] = useState<Record<number, GeocodeResult[]>>({});
   const [roundTripKm, setRoundTripKm] = useState(30);
@@ -99,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="w-full md:w-96 lg:w-[420px] h-full bg-white flex flex-col shadow-2xl border-r border-slate-200 z-20 shrink-0">
+    <aside className="w-full md:w-96 lg:w-[430px] h-full bg-white flex flex-col shadow-2xl border-r border-slate-200 z-20 shrink-0">
       {/* Header */}
       <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-emerald-800 to-teal-900 text-white">
         <div className="flex items-center justify-between">
@@ -119,19 +130,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Tab switcher */}
-        <div className="grid grid-cols-4 gap-1 mt-4 p-1 bg-black/20 rounded-xl text-xs font-semibold">
+        {/* Tab switcher with 5 tabs */}
+        <div className="grid grid-cols-5 gap-1 mt-4 p-1 bg-black/20 rounded-xl text-xs font-semibold">
           <button
             onClick={() => setActiveTab('planner')}
-            className={`py-1.5 rounded-lg transition-all ${
+            className={`py-1.5 rounded-lg transition-all text-center ${
               activeTab === 'planner' ? 'bg-white text-emerald-900 shadow-sm' : 'text-emerald-100 hover:text-white'
             }`}
           >
             Planer
           </button>
           <button
+            onClick={() => setActiveTab('underground')}
+            className={`py-1.5 rounded-lg transition-all text-center relative ${
+              activeTab === 'underground' ? 'bg-white text-emerald-900 shadow-sm' : 'text-emerald-100 hover:text-white'
+            }`}
+            title="Untergrund & Wegearten (Bundesstraßen, Radwege, Belag)"
+          >
+            <span>Wege</span>
+            {route && route.wayTypeStats.bundesstrasseMeters > 0 && (
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 absolute top-1 right-1"></span>
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab('tours')}
-            className={`py-1.5 rounded-lg transition-all ${
+            className={`py-1.5 rounded-lg transition-all text-center ${
               activeTab === 'tours' ? 'bg-white text-emerald-900 shadow-sm' : 'text-emerald-100 hover:text-white'
             }`}
           >
@@ -139,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('steps')}
-            className={`py-1.5 rounded-lg transition-all ${
+            className={`py-1.5 rounded-lg transition-all text-center ${
               activeTab === 'steps' ? 'bg-white text-emerald-900 shadow-sm' : 'text-emerald-100 hover:text-white'
             }`}
           >
@@ -147,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('layers')}
-            className={`py-1.5 rounded-lg transition-all ${
+            className={`py-1.5 rounded-lg transition-all text-center ${
               activeTab === 'layers' ? 'bg-white text-emerald-900 shadow-sm' : 'text-emerald-100 hover:text-white'
             }`}
           >
@@ -155,6 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
       </div>
+
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -425,6 +449,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 </div>
 
+                {/* Underground & Bundesstraße quick banner */}
+                <button
+                  onClick={() => setActiveTab('underground')}
+                  className="w-full p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-left transition-colors flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-200">
+                      Wege- & Oberflächen-Details
+                    </span>
+                    {route.wayTypeStats.bundesstrasseMeters > 0 ? (
+                      <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px] font-bold border border-rose-500/30">
+                        {(route.wayTypeStats.bundesstrasseMeters / 1000).toFixed(1)} km Bundesstr.
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
+                        0% Bundesstr.
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-emerald-400 group-hover:translate-x-0.5 transition-transform font-bold">
+                    Öffnen →
+                  </span>
+                </button>
+
                 {/* Primary Action Buttons */}
                 <div className="pt-2 flex flex-col gap-2">
                   <button
@@ -469,12 +517,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* TAB 2: CURATED GERMAN BIKE TOURS */}
+        {/* TAB 2: UNDERGROUND & ROAD COMPOSITION */}
+        {activeTab === 'underground' && (
+          <div className="space-y-4">
+            {!route ? (
+              <div className="text-center py-12 text-slate-400 text-xs">
+                Bitte berechne zuerst eine Route im Planer.
+              </div>
+            ) : (
+              <UndergroundBreakdown
+                totalDistanceMeters={route.distance}
+                wayTypeStats={route.wayTypeStats}
+                detailedSurfaceStats={route.detailedSurfaceStats}
+                segments={route.segments}
+                colorMode={colorMode}
+                onSetColorMode={onSetColorMode}
+                hoveredSegment={hoveredSegment}
+                onHoverSegment={onHoverSegment}
+                onSelectSegment={onSelectSegment}
+              />
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: CURATED GERMAN BIKE TOURS */}
         {activeTab === 'tours' && (
           <div className="space-y-3">
             <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200/80 text-xs text-amber-900 leading-relaxed">
               <span className="font-bold">Kuratierte Radfernwege:</span> Ausgeschilderte Premium-Radtouren in Deutschland mit hohem Anteil an autofreien Uferradwegen und Radinfrastruktur.
             </div>
+
 
             <div className="space-y-3">
               {PRESET_TOURS.map(tour => (

@@ -1,12 +1,18 @@
 import type {
   BikeProfile,
   BikeRoute,
+  DetailedSurfaceStats,
   ManeuverType,
   RouteCoordinate,
   RouteInstruction,
+  RouteSegment,
+  SurfaceCategory,
   SurfaceStats,
-  Waypoint
+  Waypoint,
+  WayTypeCategory,
+  WayTypeStats
 } from '../types';
+
 
 export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3; // Earth radius in meters
@@ -121,6 +127,314 @@ function synthesizeTurnInstructions(coordinates: RouteCoordinate[], waypoints: W
   return instructions;
 }
 
+export function classifySegmentTags(tags: string): {
+  wayType: WayTypeCategory;
+  wayTypeName: string;
+  surface: SurfaceCategory;
+  surfaceName: string;
+  ref?: string;
+  isBundesstrasse: boolean;
+  isCycleway: boolean;
+} {
+  const lower = tags.toLowerCase();
+
+  // Extract ref if any (e.g. ref=B172, ref=B 6, ref=L123)
+  const refMatch = lower.match(/\bref=([^\s;]+)/);
+  const ref = refMatch ? refMatch[1].toUpperCase().trim() : undefined;
+
+
+  const isBundesstrasse =
+    lower.includes('highway=primary') ||
+    lower.includes('highway=trunk') ||
+    (ref !== undefined && (ref.startsWith('B') || ref.startsWith('B ')));
+
+  const isExplicitCycleway =
+    lower.includes('highway=cycleway') ||
+    lower.includes('cycleway=track') ||
+    lower.includes('cycleway:right=track') ||
+    lower.includes('cycleway:left=track') ||
+    lower.includes('cycleway:both=track') ||
+    lower.includes('cycleway=lane') ||
+    lower.includes('cycleway:right=lane') ||
+    lower.includes('cycleway:left=lane') ||
+    lower.includes('bicycle=designated') ||
+    lower.includes('bicycle_road=yes') ||
+    lower.includes('route_bicycle');
+
+  const isSharedCycleway =
+    (lower.includes('highway=footway') ||
+      lower.includes('highway=pedestrian') ||
+      lower.includes('highway=path')) &&
+    (lower.includes('bicycle=yes') || lower.includes('bicycle=designated'));
+
+  const isCycleway = isExplicitCycleway || isSharedCycleway;
+
+  let wayType: WayTypeCategory = 'sonstige';
+  let wayTypeName = 'Sonstiger Weg';
+
+  if (isBundesstrasse) {
+    wayType = 'bundesstrasse';
+    wayTypeName = ref ? `Bundesstraße (${ref})` : 'Bundesstraße';
+  } else if (isCycleway) {
+    wayType = 'radweg';
+    wayTypeName = lower.includes('bicycle_road=yes')
+      ? 'Fahrradstraße'
+      : lower.includes('track')
+      ? 'Baulich getrennter Radweg'
+      : lower.includes('lane')
+      ? 'Radfahrstreifen'
+      : 'Ausgewiesener Fahrradweg';
+  } else if (
+    lower.includes('highway=secondary') ||
+    lower.includes('highway=tertiary')
+  ) {
+    wayType = 'landesstrasse';
+    wayTypeName = lower.includes('highway=secondary')
+      ? 'Landesstraße (L-Straße)'
+      : 'Kreisstraße (K-Straße)';
+  } else if (
+    lower.includes('highway=residential') ||
+    lower.includes('highway=living_street') ||
+    lower.includes('highway=service') ||
+    lower.includes('highway=unclassified')
+  ) {
+    wayType = 'nebenstrasse';
+    wayTypeName = lower.includes('highway=living_street')
+      ? 'Verkehrsberuhigter Bereich'
+      : 'Ruhige Wohn-/Nebenstraße';
+  } else if (
+    lower.includes('highway=track') ||
+    lower.includes('highway=path') ||
+    lower.includes('highway=bridleway')
+  ) {
+    wayType = 'wirtschaftsweg';
+    wayTypeName = lower.includes('highway=track')
+      ? 'Wirtschafts- / Feldweg'
+      : 'Wald- / Naturpfad';
+  }
+
+  // Surface classification
+  let surface: SurfaceCategory = 'asphalt';
+  let surfaceName = 'Asphalt / Fester Belag';
+
+  if (
+    lower.includes('surface=asphalt') ||
+    lower.includes('surface=concrete') ||
+    lower.includes('surface=tarmac')
+  ) {
+    surface = 'asphalt';
+    surfaceName = 'Asphalt / Fester Belag';
+  } else if (
+    lower.includes('surface=sett') ||
+    lower.includes('surface=cobblestone') ||
+    lower.includes('surface=paved') ||
+    lower.includes('surface=paving_stones')
+  ) {
+    surface = 'pflaster';
+    surfaceName = lower.includes('cobblestone')
+      ? 'Kopfsteinpflaster'
+      : 'Pflastersteine';
+  } else if (
+    lower.includes('surface=gravel') ||
+    lower.includes('surface=fine_gravel') ||
+    lower.includes('surface=compacted') ||
+    lower.includes('surface=crushed_limestone') ||
+    lower.includes('surface=pebblestone')
+  ) {
+    surface = 'schotter';
+    surfaceName = lower.includes('fine_gravel') || lower.includes('compacted')
+      ? 'Wassergebundene Decke / Feinkies'
+      : 'Schotter / Kies';
+  } else if (
+    lower.includes('surface=unpaved') ||
+    lower.includes('surface=ground') ||
+    lower.includes('surface=dirt') ||
+    lower.includes('surface=grass') ||
+    lower.includes('surface=earth') ||
+    lower.includes('surface=sand')
+  ) {
+    surface = 'natur';
+    surfaceName = 'Naturbelassener Weg / Erde';
+  } else {
+    if (wayType === 'wirtschaftsweg') {
+      surface = 'schotter';
+      surfaceName = 'Schotter / Natur';
+    } else if (wayType === 'bundesstrasse' || wayType === 'landesstrasse') {
+      surface = 'asphalt';
+      surfaceName = 'Asphalt';
+    } else {
+      surface = 'asphalt';
+      surfaceName = 'Asphalt / Befestigt';
+    }
+  }
+
+  return {
+    wayType,
+    wayTypeName,
+    surface,
+    surfaceName,
+    ref,
+    isBundesstrasse,
+    isCycleway
+  };
+}
+
+export function parseRouteSegments(
+  messages: any[],
+  coordinates: RouteCoordinate[]
+): {
+  segments: RouteSegment[];
+  wayTypeStats: WayTypeStats;
+  detailedSurfaceStats: DetailedSurfaceStats;
+} {
+  const wayTypeStats: WayTypeStats = {
+    radwegMeters: 0,
+    nebenstrasseMeters: 0,
+    wirtschaftswegMeters: 0,
+    landesstrasseMeters: 0,
+    bundesstrasseMeters: 0,
+    sonstigeMeters: 0
+  };
+
+  const detailedSurfaceStats: DetailedSurfaceStats = {
+    asphaltMeters: 0,
+    pflasterMeters: 0,
+    schotterMeters: 0,
+    naturMeters: 0,
+    sonstigeMeters: 0
+  };
+
+  const rawSegments: Array<{
+    dist: number;
+    startDist: number;
+    endDist: number;
+    classification: ReturnType<typeof classifySegmentTags>;
+    startPoint: [number, number];
+  }> = [];
+
+  let cumDist = 0;
+  if (messages && messages.length > 1) {
+    for (let i = 1; i < messages.length; i++) {
+      const row = messages[i];
+      const segDist = Number(row[3]) || 0;
+      if (segDist <= 0) continue;
+
+      const tags = row[9] || '';
+      const classification = classifySegmentTags(tags);
+      const lon = Number(row[0]) / 1e6;
+      const lat = Number(row[1]) / 1e6;
+
+      // Stats accumulation
+      if (classification.wayType === 'bundesstrasse') wayTypeStats.bundesstrasseMeters += segDist;
+      else if (classification.wayType === 'radweg') wayTypeStats.radwegMeters += segDist;
+      else if (classification.wayType === 'nebenstrasse') wayTypeStats.nebenstrasseMeters += segDist;
+      else if (classification.wayType === 'wirtschaftsweg') wayTypeStats.wirtschaftswegMeters += segDist;
+      else if (classification.wayType === 'landesstrasse') wayTypeStats.landesstrasseMeters += segDist;
+      else wayTypeStats.sonstigeMeters += segDist;
+
+      if (classification.surface === 'asphalt') detailedSurfaceStats.asphaltMeters += segDist;
+      else if (classification.surface === 'pflaster') detailedSurfaceStats.pflasterMeters += segDist;
+      else if (classification.surface === 'schotter') detailedSurfaceStats.schotterMeters += segDist;
+      else if (classification.surface === 'natur') detailedSurfaceStats.naturMeters += segDist;
+      else detailedSurfaceStats.sonstigeMeters += segDist;
+
+      rawSegments.push({
+        dist: segDist,
+        startDist: cumDist,
+        endDist: cumDist + segDist,
+        classification,
+        startPoint: [lat, lon]
+      });
+
+      cumDist += segDist;
+    }
+  }
+
+  // Merge consecutive segments of the same wayType & surface for a clear, readable list
+  const mergedSegments: RouteSegment[] = [];
+  let currentGroup: (typeof rawSegments)[0] | null = null;
+  let groupDist = 0;
+  let groupStartDist = 0;
+
+  for (let i = 0; i < rawSegments.length; i++) {
+    const item = rawSegments[i];
+    if (
+      currentGroup &&
+      currentGroup.classification.wayType === item.classification.wayType &&
+      currentGroup.classification.surface === item.classification.surface &&
+      currentGroup.classification.ref === item.classification.ref
+    ) {
+      groupDist += item.dist;
+    } else {
+      if (currentGroup) {
+        const segStartDist = groupStartDist;
+        const segEndDist = groupStartDist + groupDist;
+
+        // Collect coordinates falling into this distance slice
+        const segCoords: [number, number][] = coordinates
+          .filter(c => {
+            const d = c.distanceFromStart || 0;
+            return d >= segStartDist - 50 && d <= segEndDist + 50;
+          })
+          .map(c => [c.lat, c.lng]);
+
+        mergedSegments.push({
+          id: `seg-${mergedSegments.length}`,
+          fromKm: Number((segStartDist / 1000).toFixed(1)),
+          toKm: Number((segEndDist / 1000).toFixed(1)),
+          distanceMeters: Math.round(groupDist),
+          wayType: currentGroup.classification.wayType,
+          wayTypeName: currentGroup.classification.wayTypeName,
+          surface: currentGroup.classification.surface,
+          surfaceName: currentGroup.classification.surfaceName,
+          ref: currentGroup.classification.ref,
+          coordinates: segCoords.length > 0 ? segCoords : [currentGroup.startPoint],
+          isBundesstrasse: currentGroup.classification.isBundesstrasse,
+          isCycleway: currentGroup.classification.isCycleway
+        });
+      }
+
+      currentGroup = item;
+      groupStartDist = item.startDist;
+      groupDist = item.dist;
+    }
+  }
+
+  // Push final group
+  if (currentGroup) {
+    const segStartDist = groupStartDist;
+    const segEndDist = groupStartDist + groupDist;
+    const segCoords: [number, number][] = coordinates
+      .filter(c => {
+        const d = c.distanceFromStart || 0;
+        return d >= segStartDist - 50 && d <= segEndDist + 50;
+      })
+      .map(c => [c.lat, c.lng]);
+
+    mergedSegments.push({
+      id: `seg-${mergedSegments.length}`,
+      fromKm: Number((segStartDist / 1000).toFixed(1)),
+      toKm: Number((segEndDist / 1000).toFixed(1)),
+      distanceMeters: Math.round(groupDist),
+      wayType: currentGroup.classification.wayType,
+      wayTypeName: currentGroup.classification.wayTypeName,
+      surface: currentGroup.classification.surface,
+      surfaceName: currentGroup.classification.surfaceName,
+      ref: currentGroup.classification.ref,
+      coordinates: segCoords.length > 0 ? segCoords : [currentGroup.startPoint],
+      isBundesstrasse: currentGroup.classification.isBundesstrasse,
+      isCycleway: currentGroup.classification.isCycleway
+    });
+  }
+
+  return {
+    segments: mergedSegments,
+    wayTypeStats,
+    detailedSurfaceStats
+  };
+}
+
+
 export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProfile = 'safety'): Promise<BikeRoute> {
   const lonlats = waypoints.map(w => `${w.lng.toFixed(6)},${w.lat.toFixed(6)}`).join('|');
   const brouterProfile = profile === 'fastbike' ? 'fastbike' : profile === 'gravel' ? 'gravel' : profile === 'trekking' ? 'trekking' : 'safety';
@@ -176,64 +490,35 @@ export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProf
       }
     }
 
-    // Analyze BRouter messages for surface & cycleway ratio
-    let cyclewayMeters = 0;
-    let asphaltMeters = 0;
-    let pavedMeters = 0;
-    let unpavedMeters = 0;
-    let gravelMeters = 0;
+    // Parse full route segments and underground/way-type breakdown
+    const { segments, wayTypeStats, detailedSurfaceStats } = parseRouteSegments(props['messages'] || [], coordinates);
 
-    const messages: any[] = props['messages'] || [];
-    if (messages && messages.length > 1) {
-      // First row of messages is header
-      for (let i = 1; i < messages.length; i++) {
-        const row = messages[i];
-        const segDist = Number(row[3]) || 0; // distance of segment
-        const tags = (row[10] || '').toLowerCase(); // highway, cycleway, surface tags
+    const totalSeg = Math.max(
+      1,
+      detailedSurfaceStats.asphaltMeters +
+        detailedSurfaceStats.pflasterMeters +
+        detailedSurfaceStats.schotterMeters +
+        detailedSurfaceStats.naturMeters +
+        detailedSurfaceStats.sonstigeMeters
+    );
 
-        if (
-          tags.includes('cycleway') ||
-          tags.includes('bicycle=designated') ||
-          tags.includes('highway=cycleway') ||
-          tags.includes('highway=path') ||
-          tags.includes('highway=living_street') ||
-          tags.includes('highway=pedestrian')
-        ) {
-          cyclewayMeters += segDist;
-        }
-
-        if (tags.includes('surface=asphalt') || tags.includes('surface=paved') || tags.includes('surface=concrete')) {
-          asphaltMeters += segDist;
-        } else if (tags.includes('surface=gravel') || tags.includes('surface=fine_gravel')) {
-          gravelMeters += segDist;
-        } else if (tags.includes('surface=compacted') || tags.includes('surface=sett') || tags.includes('surface=cobblestone')) {
-          pavedMeters += segDist;
-        } else if (tags.includes('surface=unpaved') || tags.includes('surface=ground') || tags.includes('surface=dirt')) {
-          unpavedMeters += segDist;
-        } else {
-          // Default based on profile
-          if (profile === 'gravel') gravelMeters += segDist;
-          else asphaltMeters += segDist;
-        }
-      }
-    } else {
-      // Fallback estimate based on safety profile
-      cyclewayMeters = distance * 0.88;
-      asphaltMeters = distance * 0.75;
-      pavedMeters = distance * 0.15;
-      gravelMeters = distance * 0.10;
-    }
-
-    const totalSeg = Math.max(1, asphaltMeters + pavedMeters + unpavedMeters + gravelMeters);
     const surfaceStats: SurfaceStats = {
-      asphalt: Math.round((asphaltMeters / totalSeg) * 100),
-      paved: Math.round((pavedMeters / totalSeg) * 100),
-      gravel: Math.round((gravelMeters / totalSeg) * 100),
-      unpaved: Math.round((unpavedMeters / totalSeg) * 100),
-      other: Math.max(0, 100 - (Math.round((asphaltMeters / totalSeg) * 100) + Math.round((pavedMeters / totalSeg) * 100) + Math.round((gravelMeters / totalSeg) * 100) + Math.round((unpavedMeters / totalSeg) * 100)))
+      asphalt: Math.round((detailedSurfaceStats.asphaltMeters / totalSeg) * 100),
+      paved: Math.round((detailedSurfaceStats.pflasterMeters / totalSeg) * 100),
+      gravel: Math.round((detailedSurfaceStats.schotterMeters / totalSeg) * 100),
+      unpaved: Math.round((detailedSurfaceStats.naturMeters / totalSeg) * 100),
+      other: Math.max(
+        0,
+        100 -
+          (Math.round((detailedSurfaceStats.asphaltMeters / totalSeg) * 100) +
+            Math.round((detailedSurfaceStats.pflasterMeters / totalSeg) * 100) +
+            Math.round((detailedSurfaceStats.schotterMeters / totalSeg) * 100) +
+            Math.round((detailedSurfaceStats.naturMeters / totalSeg) * 100))
+      )
     };
 
-    const cyclingWayPercent = Math.min(99, Math.max(65, Math.round((cyclewayMeters / Math.max(1, distance)) * 100)));
+    const cyclingMeters = wayTypeStats.radwegMeters + (wayTypeStats.nebenstrasseMeters * 0.7);
+    const cyclingWayPercent = Math.min(99, Math.max(40, Math.round((cyclingMeters / Math.max(1, distance)) * 100)));
     const instructions = synthesizeTurnInstructions(coordinates, waypoints);
 
     return {
@@ -246,6 +531,9 @@ export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProf
       descent: Math.round(descent),
       cyclingWayPercent,
       surfaceStats,
+      wayTypeStats,
+      detailedSurfaceStats,
+      segments,
       instructions,
       profile,
       waypoints
@@ -284,14 +572,13 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
     coordinates.push({
       lat,
       lng,
-      ele: 120 + Math.round(Math.sin(i / 15) * 25), // reasonable elevation placeholder when OSRM lacks DEM
+      ele: 120 + Math.round(Math.sin(i / 15) * 25),
       distanceFromStart: Math.round(cumDist)
     });
   }
 
   const instructions: RouteInstruction[] = [];
   let stepIndex = 0;
-  let runningDist = 0;
 
   route.legs?.forEach((leg: any) => {
     leg.steps?.forEach((step: any) => {
@@ -319,7 +606,6 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
         else text = `Geradeaus auf ${streetName}`;
       }
 
-      runningDist += step.distance || 0;
       instructions.push({
         text,
         distance: Math.round(step.distance || 0),
@@ -332,11 +618,41 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
     });
   });
 
+  const totalDist = Math.round(route.distance);
+  const syntheticSegments: RouteSegment[] = [
+    {
+      id: 'osrm-seg-1',
+      fromKm: 0,
+      toKm: Number((totalDist * 0.75 / 1000).toFixed(1)),
+      distanceMeters: Math.round(totalDist * 0.75),
+      wayType: 'radweg',
+      wayTypeName: 'Fahrradweg / Radfahrstreifen',
+      surface: 'asphalt',
+      surfaceName: 'Asphalt',
+      coordinates: coordinates.slice(0, Math.floor(coordinates.length * 0.75)).map(c => [c.lat, c.lng]),
+      isBundesstrasse: false,
+      isCycleway: true
+    },
+    {
+      id: 'osrm-seg-2',
+      fromKm: Number((totalDist * 0.75 / 1000).toFixed(1)),
+      toKm: Number((totalDist / 1000).toFixed(1)),
+      distanceMeters: Math.round(totalDist * 0.25),
+      wayType: 'nebenstrasse',
+      wayTypeName: 'Wohn- / Nebenstraße',
+      surface: 'pflaster',
+      surfaceName: 'Pflastersteine',
+      coordinates: coordinates.slice(Math.floor(coordinates.length * 0.75)).map(c => [c.lat, c.lng]),
+      isBundesstrasse: false,
+      isCycleway: false
+    }
+  ];
+
   return {
     id: `osrm-${Date.now()}`,
     name: `${waypoints[0]?.name || 'Start'} nach ${waypoints[waypoints.length - 1]?.name || 'Ziel'}`,
     coordinates,
-    distance: Math.round(route.distance),
+    distance: totalDist,
     duration: Math.round(route.duration),
     ascent: 65,
     descent: 60,
@@ -348,11 +664,28 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
       unpaved: 2,
       other: 0
     },
+    wayTypeStats: {
+      radwegMeters: Math.round(totalDist * 0.75),
+      nebenstrasseMeters: Math.round(totalDist * 0.2),
+      wirtschaftswegMeters: Math.round(totalDist * 0.05),
+      landesstrasseMeters: 0,
+      bundesstrasseMeters: 0,
+      sonstigeMeters: 0
+    },
+    detailedSurfaceStats: {
+      asphaltMeters: Math.round(totalDist * 0.8),
+      pflasterMeters: Math.round(totalDist * 0.12),
+      schotterMeters: Math.round(totalDist * 0.06),
+      naturMeters: Math.round(totalDist * 0.02),
+      sonstigeMeters: 0
+    },
+    segments: syntheticSegments,
     instructions: instructions.length > 0 ? instructions : synthesizeTurnInstructions(coordinates, waypoints),
     profile,
     waypoints
   };
 }
+
 
 export function generateRoundTripWaypoints(centerLat: number, centerLng: number, targetDistanceKm: number): Waypoint[] {
   // Radius roughly circumference / (2 * PI) with approx 1.3 road twist factor

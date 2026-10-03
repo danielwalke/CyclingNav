@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { BaseMapId, BikePoi, BikeRoute, NavigationState, RouteCoordinate, Waypoint } from '../types';
+import type { BaseMapId, BikePoi, BikeRoute, NavigationState, RouteColorMode, RouteCoordinate, RouteSegment, Waypoint } from '../types';
 
 interface MapProps {
   baseMap: BaseMapId;
@@ -11,9 +11,12 @@ interface MapProps {
   hoveredCoord: RouteCoordinate | null;
   navigationState: NavigationState;
   pois: BikePoi[];
+  colorMode: RouteColorMode;
+  hoveredSegment: RouteSegment | null;
   onMapClick: (lat: number, lng: number) => void;
   onWaypointMove?: (id: string, lat: number, lng: number) => void;
 }
+
 
 const TILE_LAYERS: Record<BaseMapId, { url: string; attr: string; maxZoom: number }> = {
   cyclosm: {
@@ -43,6 +46,8 @@ export const Map: React.FC<MapProps> = ({
   hoveredCoord,
   navigationState,
   pois,
+  colorMode,
+  hoveredSegment,
   onMapClick,
   onWaypointMove
 }) => {
@@ -51,12 +56,14 @@ export const Map: React.FC<MapProps> = ({
   const baseTileLayerRef = useRef<L.TileLayer | null>(null);
   const overlayTileLayerRef = useRef<L.TileLayer | null>(null);
 
-  // Layer groups for markers, routes, POIs
+  // Layer groups for markers, routes, POIs, segment highlight
   const routeLayerGroup = useRef<L.LayerGroup | null>(null);
+  const segmentHighlightGroup = useRef<L.LayerGroup | null>(null);
   const markerLayerGroup = useRef<L.LayerGroup | null>(null);
   const poiLayerGroup = useRef<L.LayerGroup | null>(null);
   const liveRiderMarkerRef = useRef<L.Marker | null>(null);
   const scrubberMarkerRef = useRef<L.Marker | null>(null);
+
 
   // Initialize Map
   useEffect(() => {
@@ -81,6 +88,7 @@ export const Map: React.FC<MapProps> = ({
 
     // Layer groups
     routeLayerGroup.current = L.layerGroup().addTo(map);
+    segmentHighlightGroup.current = L.layerGroup().addTo(map);
     markerLayerGroup.current = L.layerGroup().addTo(map);
     poiLayerGroup.current = L.layerGroup().addTo(map);
 
@@ -197,7 +205,7 @@ export const Map: React.FC<MapProps> = ({
     });
   }, [waypoints, onWaypointMove]);
 
-  // Render Bike Route Polyline
+  // Render Bike Route Polyline (supports standard, way type colors, or surface colors)
   useEffect(() => {
     const group = routeLayerGroup.current;
     const map = mapRef.current;
@@ -208,32 +216,97 @@ export const Map: React.FC<MapProps> = ({
 
     const latlngs: L.LatLngExpression[] = route.coordinates.map(c => [c.lat, c.lng]);
 
-    // Border line (casing) for high visibility against any background
+    // Outer casing for contrast
     const casingPolyline = L.polyline(latlngs, {
-      color: '#064e3b',
+      color: '#0f172a',
       weight: 8,
-      opacity: 0.85,
+      opacity: 0.75,
       lineCap: 'round',
       lineJoin: 'round'
     });
-
-    // Core cycling route line (vibrant emerald green with dash for bike feel)
-    const corePolyline = L.polyline(latlngs, {
-      color: '#10b981',
-      weight: 5,
-      opacity: 0.95,
-      lineCap: 'round',
-      lineJoin: 'round'
-    });
-
     group.addLayer(casingPolyline);
-    group.addLayer(corePolyline);
 
-    // If not navigating actively, zoom/fit the route in view with gentle padding
-    if (!navigationState.isActive) {
-      map.fitBounds(corePolyline.getBounds(), { padding: [50, 50], maxZoom: 16 });
+    if (colorMode === 'default' || !route.segments || route.segments.length === 0) {
+      // Standard vibrant emerald cycling line
+      const corePolyline = L.polyline(latlngs, {
+        color: '#10b981',
+        weight: 5,
+        opacity: 0.95,
+        lineCap: 'round',
+        lineJoin: 'round'
+      });
+      group.addLayer(corePolyline);
+    } else {
+      // Color code by Wegeart (Way Type) or Untergrund (Surface)
+      route.segments.forEach(seg => {
+        if (!seg.coordinates || seg.coordinates.length < 2) return;
+
+        let segColor = '#10b981';
+        if (colorMode === 'waytype') {
+          if (seg.wayType === 'bundesstrasse') segColor = '#e11d48'; // Bright Red/Rose for Bundesstraße!
+          else if (seg.wayType === 'radweg') segColor = '#10b981'; // Emerald for cycleway
+          else if (seg.wayType === 'nebenstrasse') segColor = '#0284c7'; // Sky Blue
+          else if (seg.wayType === 'wirtschaftsweg') segColor = '#d97706'; // Amber
+          else if (seg.wayType === 'landesstrasse') segColor = '#9333ea'; // Purple
+          else segColor = '#64748b';
+        } else if (colorMode === 'surface') {
+          if (seg.surface === 'asphalt') segColor = '#475569'; // Slate
+          else if (seg.surface === 'pflaster') segColor = '#0284c7'; // Blue
+          else if (seg.surface === 'schotter') segColor = '#d97706'; // Orange/Amber
+          else if (seg.surface === 'natur') segColor = '#15803d'; // Green/Nature
+          else segColor = '#64748b';
+        }
+
+        const segPolyline = L.polyline(seg.coordinates, {
+          color: segColor,
+          weight: 5.5,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round'
+        });
+
+        segPolyline.bindTooltip(
+          `<div class="text-xs font-bold">${seg.wayTypeName}</div><div class="text-[11px] text-slate-500">${seg.surfaceName} (km ${seg.fromKm}-${seg.toKm})</div>`,
+          { sticky: true }
+        );
+
+        group.addLayer(segPolyline);
+      });
     }
-  }, [route]);
+
+    if (!navigationState.isActive) {
+      map.fitBounds(casingPolyline.getBounds(), { padding: [50, 50], maxZoom: 16 });
+    }
+  }, [route, colorMode]);
+
+  // Segment Hover/Select Highlight Layer
+  useEffect(() => {
+    const group = segmentHighlightGroup.current;
+    const map = mapRef.current;
+    if (!group || !map) return;
+    group.clearLayers();
+
+    if (hoveredSegment && hoveredSegment.coordinates && hoveredSegment.coordinates.length >= 2) {
+      const highlight = L.polyline(hoveredSegment.coordinates, {
+        color: '#fbbf24', // Glowing amber/yellow
+        weight: 12,
+        opacity: 0.9,
+        lineCap: 'round',
+        lineJoin: 'round'
+      });
+      group.addLayer(highlight);
+
+      const inner = L.polyline(hoveredSegment.coordinates, {
+        color: hoveredSegment.isBundesstrasse ? '#e11d48' : '#059669',
+        weight: 6,
+        opacity: 1,
+        lineCap: 'round',
+        lineJoin: 'round'
+      });
+      group.addLayer(inner);
+    }
+  }, [hoveredSegment]);
+
 
   // Elevation Chart Scrubber Marker
   useEffect(() => {

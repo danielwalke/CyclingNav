@@ -68,7 +68,8 @@ test.describe('Bike Tour Germany App - End to End', () => {
     await expect(page.locator('text=GPS-Simulation Aktiv')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('text=Tempo')).toBeVisible();
     await expect(page.locator('text=Rest')).toBeVisible();
-    await expect(page.locator('text=ETA')).toBeVisible();
+    await expect(page.getByText('ETA', { exact: true })).toBeVisible();
+
 
     // Test simulation speed multiplier
     const speed5xBtn = page.locator('button:has-text("5x")');
@@ -105,4 +106,39 @@ test.describe('Bike Tour Germany App - End to End', () => {
     const waterBtn = page.locator('button[title*="Trinkwasserbrunnen"]');
     await waterBtn.click();
   });
+
+  test('inspects underground composition, Bundesstraße detection, and way types breakdown', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('text=Routendaten')).toBeVisible({ timeout: 15000 });
+
+    // Click on the quick banner or the "Wege" tab
+    await page.click('button:has-text("Wege- & Oberflächen-Details")');
+
+    // Verify Underground & Way type breakdown is visible
+    await expect(page.locator('text=Wegearten & Straßenklassen')).toBeVisible();
+    await expect(page.locator('text=Bundesstraße (B-Straße)')).toBeVisible();
+    await expect(page.locator('text=Radweg & Radfahrstreifen')).toBeVisible();
+
+    // Verify Surface / Underground breakdown is visible
+    await expect(page.locator('text=Untergrund & Oberflächenbelag')).toBeVisible();
+    await expect(page.locator('text=Asphalt & Beton')).toBeVisible();
+
+    // Verify "Wo verläuft was?" chronological segments
+    await expect(page.locator('text=Wo verläuft was?')).toBeVisible();
+    const firstSeg = page.locator('div:has-text("km 0")').first();
+    await expect(firstSeg).toBeVisible();
+
+    // Hover or click first segment to highlight on map
+    await firstSeg.click();
+
+    // Test route coloring mode buttons
+    const byWayTypeBtn = page.locator('button:has-text("Nach Wegeart")');
+    await byWayTypeBtn.click();
+    await expect(byWayTypeBtn).toHaveClass(/bg-emerald-600/);
+
+    const bySurfaceBtn = page.locator('button:has-text("Nach Belag")');
+    await bySurfaceBtn.click();
+    await expect(bySurfaceBtn).toHaveClass(/bg-emerald-600/);
+  });
 });
+
