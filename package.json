@@ -9,7 +9,9 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run src/test",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "deploy:ngrok": "bash deploy_ngrok.sh"
+
 
 
   },

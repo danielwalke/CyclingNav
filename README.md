@@ -80,7 +80,27 @@ npm run build
 npm run preview
 ```
 
+### 🌐 Direkt-Deployment mit ngrok (Public HTTPS Link)
+
+Mit einem einzigen Befehl kannst du die App bauen und über einen öffentlichen HTTPS-Link direkt auf deinem Smartphone oder Fahrradcomputer verfügbar machen:
+
+**Per Shell Script (Git Bash / Linux / macOS):**
+```bash
+chmod +x deploy_ngrok.sh
+./deploy_ngrok.sh
+# oder
+npm run deploy:ngrok
+```
+
+**Per PowerShell (Windows):**
+```powershell
+.\deploy_ngrok.ps1
+```
+
+Der Befehl baut automatisch die Anwendung, startet den Webserver und stellt den öffentlichen Link (z. B. `https://xxxx.ngrok-free.app`) in der Konsole bereit.
+
 ### Tests ausführen
+
 
 **Unit- und Integrationstests (Vitest):**
 ```bash
