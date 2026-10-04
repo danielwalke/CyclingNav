@@ -172,6 +172,8 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
               else if (seg.surface === 'natur') bgClass = 'bg-emerald-700';
             } else {
               if (seg.wayType === 'bundesstrasse') bgClass = 'bg-rose-600';
+              else if (seg.wayType === 'radweg') bgClass = 'bg-emerald-500';
+              else if (seg.wayType === 'radfahrstreifen') bgClass = 'bg-cyan-500';
               else if (seg.wayType === 'landesstrasse') bgClass = 'bg-purple-500';
               else if (seg.wayType === 'nebenstrasse') bgClass = 'bg-sky-500';
               else if (seg.wayType === 'wirtschaftsweg') bgClass = 'bg-amber-600';
@@ -296,14 +298,19 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
         </div>
 
         <div className="space-y-2">
-          {/* Radwege */}
-          <div className="p-2.5 rounded-xl border border-slate-200 bg-white">
+          {/* Baulich getrennte Radwege & Fahrradstraßen */}
+          <div className="p-2.5 rounded-xl border border-emerald-200/80 bg-emerald-50/30">
             <div className="flex justify-between items-center text-xs font-bold">
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-                <span className="text-slate-900">Radweg & Radfahrstreifen</span>
+                <span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0"></span>
+                <div>
+                  <span className="text-slate-900">Baulich getrennter Radweg & Fahrradstraße</span>
+                  <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                    Physisch abgetrennt, autofrei oder Fahrradstraße mit Radvorrang
+                  </div>
+                </div>
               </div>
-              <div className="text-slate-800">
+              <div className="text-slate-800 text-right shrink-0 ml-2">
                 {formatKm(wayTypeStats.radwegMeters)} km{' '}
                 <span className="text-emerald-700 font-semibold text-[11px]">
                   ({getPercent(wayTypeStats.radwegMeters)}%)
@@ -314,6 +321,33 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
               <div
                 className="bg-emerald-500 h-full rounded-full"
                 style={{ width: `${getPercent(wayTypeStats.radwegMeters)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Radfahrstreifen & Schutzstreifen auf Fahrbahn */}
+          <div className="p-2.5 rounded-xl border border-cyan-200/80 bg-cyan-50/30">
+            <div className="flex justify-between items-center text-xs font-bold">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-cyan-500 shrink-0"></span>
+                <div>
+                  <span className="text-slate-900">Radfahrstreifen & Schutzstreifen</span>
+                  <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                    Aufgemalte Markierung auf der Straße (Präsenz von Kfz-Verkehr)
+                  </div>
+                </div>
+              </div>
+              <div className="text-slate-800 text-right shrink-0 ml-2">
+                {formatKm(wayTypeStats.radfahrstreifenMeters)} km{' '}
+                <span className="text-cyan-700 font-semibold text-[11px]">
+                  ({getPercent(wayTypeStats.radfahrstreifenMeters)}%)
+                </span>
+              </div>
+            </div>
+            <div className="w-full h-1.5 bg-slate-100 rounded-full mt-2 overflow-hidden">
+              <div
+                className="bg-cyan-500 h-full rounded-full"
+                style={{ width: `${getPercent(wayTypeStats.radfahrstreifenMeters)}%` }}
               />
             </div>
           </div>
@@ -454,6 +488,7 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
             const isHovered = hoveredSegment?.id === seg.id;
             let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
             if (seg.wayType === 'bundesstrasse') badgeBg = 'bg-rose-50 text-rose-700 border-rose-300 font-extrabold';
+            else if (seg.wayType === 'radfahrstreifen') badgeBg = 'bg-cyan-50 text-cyan-800 border-cyan-300 font-medium';
             else if (seg.wayType === 'landesstrasse') badgeBg = 'bg-purple-50 text-purple-700 border-purple-200';
             else if (seg.wayType === 'nebenstrasse') badgeBg = 'bg-sky-50 text-sky-700 border-sky-200';
             else if (seg.wayType === 'wirtschaftsweg') badgeBg = 'bg-amber-50 text-amber-700 border-amber-200';

@@ -54,11 +54,17 @@ describe('Bike Tour Routing & Geocoding Service', () => {
     expect(bTag.ref).toBe('B172');
     expect(bTag.surface).toBe('asphalt');
 
-    // Cycleway
+    // Dedicated / Separate Cycleway
     const cTag = classifySegmentTags('highway=cycleway surface=asphalt bicycle=designated');
     expect(cTag.isCycleway).toBe(true);
     expect(cTag.wayType).toBe('radweg');
     expect(cTag.surface).toBe('asphalt');
+
+    // On-road Bike Lane / Radfahrstreifen
+    const laneTag = classifySegmentTags('highway=secondary cycleway=lane surface=asphalt');
+    expect(laneTag.isCycleway).toBe(true);
+    expect(laneTag.wayType).toBe('radfahrstreifen');
+    expect(laneTag.wayTypeName).toContain('Radfahrstreifen');
 
     // Cobblestone / Pflaster
     const pTag = classifySegmentTags('highway=residential surface=sett');

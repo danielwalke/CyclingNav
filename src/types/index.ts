@@ -48,6 +48,7 @@ export interface SurfaceStats {
 
 export type WayTypeCategory =
   | 'radweg'
+  | 'radfahrstreifen'
   | 'nebenstrasse'
   | 'wirtschaftsweg'
   | 'landesstrasse'
@@ -113,7 +114,8 @@ export interface RouteSegment {
 }
 
 export interface WayTypeStats {
-  radwegMeters: number;
+  radwegMeters: number; // Baulich getrennter Radweg / Fahrradstraße
+  radfahrstreifenMeters: number; // Aufgemalter Radfahrstreifen / Schutzstreifen
   nebenstrasseMeters: number;
   wirtschaftswegMeters: number;
   landesstrasseMeters: number;

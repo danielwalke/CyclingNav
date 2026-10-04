@@ -250,7 +250,8 @@ export const Map: React.FC<MapProps> = ({
         let segColor = '#10b981';
         if (colorMode === 'waytype') {
           if (seg.wayType === 'bundesstrasse') segColor = '#e11d48'; // Bright Red/Rose for Bundesstraße!
-          else if (seg.wayType === 'radweg') segColor = '#10b981'; // Emerald for cycleway
+          else if (seg.wayType === 'radweg') segColor = '#10b981'; // Emerald for separate cycleway
+          else if (seg.wayType === 'radfahrstreifen') segColor = '#06b6d4'; // Cyan for on-road bike lane
           else if (seg.wayType === 'nebenstrasse') segColor = '#0284c7'; // Sky Blue
           else if (seg.wayType === 'wirtschaftsweg') segColor = '#d97706'; // Amber
           else if (seg.wayType === 'landesstrasse') segColor = '#9333ea'; // Purple

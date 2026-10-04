@@ -74,5 +74,16 @@ test.describe('D-Route and Cycling Network Breakdown Verification', () => {
         fullPage: false
       });
     }
+
+    // Scroll to Wegearten section showing separate Radweg vs Radfahrstreifen
+    const radstreifenCard = page.locator('text=Radfahrstreifen & Schutzstreifen').first();
+    if (await radstreifenCard.isVisible()) {
+      await radstreifenCard.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(500);
+      await page.screenshot({
+        path: `${ARTIFACT_DIR}/wegearten_radweg_vs_radfahrstreifen.png`,
+        fullPage: false
+      });
+    }
   });
 });

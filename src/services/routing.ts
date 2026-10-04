@@ -154,15 +154,23 @@ export function classifySegmentTags(tags: string): {
     lower.includes('highway=trunk') ||
     (ref !== undefined && (ref.startsWith('B') || ref.startsWith('B ')));
 
-  const isExplicitCycleway =
+  const isLaneCycleway =
+    lower.includes('cycleway=lane') ||
+    lower.includes('cycleway:right=lane') ||
+    lower.includes('cycleway:left=lane') ||
+    lower.includes('cycleway:both=lane') ||
+    lower.includes('cycleway=opposite_lane') ||
+    lower.includes('cycleway=advisory') ||
+    lower.includes('cycleway=share_busway') ||
+    lower.includes('cycleway:right=share_busway') ||
+    lower.includes('cycleway:left=share_busway');
+
+  const isSeparateCycleway =
     lower.includes('highway=cycleway') ||
     lower.includes('cycleway=track') ||
     lower.includes('cycleway:right=track') ||
     lower.includes('cycleway:left=track') ||
     lower.includes('cycleway:both=track') ||
-    lower.includes('cycleway=lane') ||
-    lower.includes('cycleway:right=lane') ||
-    lower.includes('cycleway:left=lane') ||
     lower.includes('bicycle=designated') ||
     lower.includes('bicycle_road=yes') ||
     lower.includes('route_bicycle');
@@ -173,7 +181,7 @@ export function classifySegmentTags(tags: string): {
       lower.includes('highway=path')) &&
     (lower.includes('bicycle=yes') || lower.includes('bicycle=designated'));
 
-  const isCycleway = isExplicitCycleway || isSharedCycleway;
+  const isCycleway = isSeparateCycleway || isSharedCycleway || isLaneCycleway;
 
   let wayType: WayTypeCategory = 'sonstige';
   let wayTypeName = 'Sonstiger Weg';
@@ -181,15 +189,18 @@ export function classifySegmentTags(tags: string): {
   if (isBundesstrasse) {
     wayType = 'bundesstrasse';
     wayTypeName = ref ? `Bundesstraße (${ref})` : 'Bundesstraße';
-  } else if (isCycleway) {
+  } else if (isSeparateCycleway || isSharedCycleway) {
     wayType = 'radweg';
     wayTypeName = lower.includes('bicycle_road=yes')
-      ? 'Fahrradstraße'
+      ? 'Fahrradstraße (mit Radvorrang)'
       : lower.includes('track')
       ? 'Baulich getrennter Radweg'
-      : lower.includes('lane')
-      ? 'Radfahrstreifen'
-      : 'Ausgewiesener Fahrradweg';
+      : 'Separater Radweg / autofreier Pfad';
+  } else if (isLaneCycleway) {
+    wayType = 'radfahrstreifen';
+    wayTypeName = lower.includes('advisory')
+      ? 'Schutzstreifen (auf Fahrbahn)'
+      : 'Radfahrstreifen (auf Fahrbahn)';
   } else if (
     lower.includes('highway=secondary') ||
     lower.includes('highway=tertiary')
@@ -295,6 +306,7 @@ export function parseRouteSegments(
 } {
   const wayTypeStats: WayTypeStats = {
     radwegMeters: 0,
+    radfahrstreifenMeters: 0,
     nebenstrasseMeters: 0,
     wirtschaftswegMeters: 0,
     landesstrasseMeters: 0,
@@ -335,6 +347,7 @@ export function parseRouteSegments(
       // Stats accumulation
       if (classification.wayType === 'bundesstrasse') wayTypeStats.bundesstrasseMeters += segDist;
       else if (classification.wayType === 'radweg') wayTypeStats.radwegMeters += segDist;
+      else if (classification.wayType === 'radfahrstreifen') wayTypeStats.radfahrstreifenMeters += segDist;
       else if (classification.wayType === 'nebenstrasse') wayTypeStats.nebenstrasseMeters += segDist;
       else if (classification.wayType === 'wirtschaftsweg') wayTypeStats.wirtschaftswegMeters += segDist;
       else if (classification.wayType === 'landesstrasse') wayTypeStats.landesstrasseMeters += segDist;
@@ -548,7 +561,10 @@ export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProf
       )
     };
 
-    const cyclingMeters = wayTypeStats.radwegMeters + (wayTypeStats.nebenstrasseMeters * 0.7);
+    const cyclingMeters =
+      wayTypeStats.radwegMeters +
+      (wayTypeStats.radfahrstreifenMeters * 0.9) +
+      (wayTypeStats.nebenstrasseMeters * 0.7);
     const cyclingWayPercent = Math.min(99, Math.max(40, Math.round((cyclingMeters / Math.max(1, distance)) * 100)));
     const instructions = synthesizeTurnInstructions(coordinates, waypoints);
     const networkBreakdown = calculateRouteNetworkBreakdown(segments, distance);
@@ -715,7 +731,8 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
       other: 0
     },
     wayTypeStats: {
-      radwegMeters: Math.round(totalDist * 0.75),
+      radwegMeters: Math.round(totalDist * 0.65),
+      radfahrstreifenMeters: Math.round(totalDist * 0.1),
       nebenstrasseMeters: Math.round(totalDist * 0.2),
       wirtschaftswegMeters: Math.round(totalDist * 0.05),
       landesstrasseMeters: 0,

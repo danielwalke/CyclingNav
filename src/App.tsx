@@ -384,6 +384,7 @@ export const App: React.FC = () => {
               surfaceStats: { asphalt: 85, paved: 10, gravel: 5, unpaved: 0, other: 0 },
               wayTypeStats: {
                 radwegMeters: dist,
+                radfahrstreifenMeters: 0,
                 nebenstrasseMeters: 0,
                 wirtschaftswegMeters: 0,
                 landesstrasseMeters: 0,
