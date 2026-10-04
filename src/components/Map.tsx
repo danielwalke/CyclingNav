@@ -101,8 +101,10 @@ export const Map: React.FC<MapProps> = ({
     });
 
     mapRef.current = map;
+    (window as any).leafletMap = map;
 
     return () => {
+      delete (window as any).leafletMap;
       map.remove();
       mapRef.current = null;
     };
