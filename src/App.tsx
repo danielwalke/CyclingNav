@@ -34,16 +34,16 @@ import { Menu, X } from 'lucide-react';
 const INITIAL_WAYPOINTS: Waypoint[] = [
   {
     id: 'wp-start',
-    name: 'Dresden Frauenkirche (Elberadweg)',
-    lat: 51.0519,
-    lng: 13.7415,
+    name: 'Bremen (Marktplatz)',
+    lat: 53.0760,
+    lng: 8.8071,
     type: 'start'
   },
   {
     id: 'wp-end',
-    name: 'Kurort Rathen (Bastei)',
-    lat: 50.9575,
-    lng: 14.0784,
+    name: 'Dortmund (Hansaplatz)',
+    lat: 51.5136,
+    lng: 7.4653,
     type: 'end'
   }
 ];
@@ -59,6 +59,9 @@ export const App: React.FC = () => {
   const [isLoadingRoute, setIsLoadingRoute] = useState<boolean>(false);
   const [hoveredCoord, setHoveredCoord] = useState<RouteCoordinate | null>(null);
 
+  // Active route calculation request ID to discard stale out-of-order responses
+  const activeRouteReqRef = React.useRef<number>(0);
+  const computeDebounceRef = React.useRef<number | null>(null);
 
   // POI state
   const [selectedPois, setSelectedPois] = useState<PoiType[]>(['repair', 'water']);
@@ -94,9 +97,25 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Verify all waypoints have valid names and coordinates
+    for (const wp of currentWaypoints) {
+      if (!wp.name.trim() || isNaN(wp.lat) || isNaN(wp.lng) || (wp.lat === 0 && wp.lng === 0)) {
+        return;
+      }
+    }
+
+    const reqId = ++activeRouteReqRef.current;
     setIsLoadingRoute(true);
+
     try {
       const calculatedRoute = await fetchBRouterRoute(currentWaypoints, currentProfile);
+
+      // Discard stale response if a newer calculation was started
+      if (reqId !== activeRouteReqRef.current) {
+        console.log(`[Route] Stale response discarded for #${reqId} (active is #${activeRouteReqRef.current})`);
+        return;
+      }
+
       setRoute(calculatedRoute);
 
       // Fetch nearby bike POIs for the route's midpoint
@@ -104,19 +123,29 @@ export const App: React.FC = () => {
         const midIdx = Math.floor(calculatedRoute.coordinates.length / 2);
         const mid = calculatedRoute.coordinates[midIdx];
         const span = 0.08;
-        const fetchedPois = await fetchPoisInBounds(
-          mid.lat - span,
-          mid.lng - span,
-          mid.lat + span,
-          mid.lng + span,
-          selectedPois
-        );
-        setPois(fetchedPois);
+        try {
+          const fetchedPois = await fetchPoisInBounds(
+            mid.lat - span,
+            mid.lng - span,
+            mid.lat + span,
+            mid.lng + span,
+            selectedPois
+          );
+          if (reqId === activeRouteReqRef.current) {
+            setPois(fetchedPois);
+          }
+        } catch (poiErr) {
+          console.warn('POI fetch failed:', poiErr);
+        }
       }
     } catch (err) {
-      console.error('Failed to compute bike route:', err);
+      if (reqId === activeRouteReqRef.current) {
+        console.error('Failed to compute bike route:', err);
+      }
     } finally {
-      setIsLoadingRoute(false);
+      if (reqId === activeRouteReqRef.current) {
+        setIsLoadingRoute(false);
+      }
     }
   }, [selectedPois]);
 
@@ -125,12 +154,17 @@ export const App: React.FC = () => {
     computeRoute(waypoints, profile);
   }, []);
 
-  // Update Waypoint by ID
+  // Update Waypoint by ID with debounced route computation
   const handleUpdateWaypoint = (id: string, name: string, lat: number, lng: number) => {
     setWaypoints(prev => {
       const updated = prev.map(w => (w.id === id ? { ...w, name, lat, lng } : w));
       if (name.trim()) {
-        computeRoute(updated, profile);
+        if (computeDebounceRef.current) {
+          clearTimeout(computeDebounceRef.current);
+        }
+        computeDebounceRef.current = window.setTimeout(() => {
+          computeRoute(updated, profile);
+        }, 150);
       }
       return updated;
     });

@@ -438,26 +438,33 @@ export function parseRouteSegments(
 
 
 export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProfile = 'safety'): Promise<BikeRoute> {
-  const cacheKey = getRouteCacheKey(waypoints, profile);
+  const validWaypoints = waypoints.filter(
+    w => typeof w.lat === 'number' && isFinite(w.lat) && typeof w.lng === 'number' && isFinite(w.lng)
+  );
+  if (validWaypoints.length < 2) {
+    throw new Error('At least 2 valid waypoints required');
+  }
+
+  const cacheKey = getRouteCacheKey(validWaypoints, profile);
   const cached = getCachedRoute(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const lonlats = waypoints.map(w => `${w.lng.toFixed(6)},${w.lat.toFixed(6)}`).join('|');
+  const lonlats = validWaypoints.map(w => `${w.lng.toFixed(6)},${w.lat.toFixed(6)}`).join('|');
   const brouterProfile = profile === 'fastbike' ? 'fastbike' : profile === 'gravel' ? 'gravel' : profile === 'trekking' ? 'trekking' : 'safety';
   const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=${brouterProfile}&format=geojson`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
-
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      throw new Error(`BRouter HTTP error: ${res.status}`);
+      const errText = await res.text().catch(() => '');
+      throw new Error(`BRouter HTTP error ${res.status}: ${errText} (URL: ${url})`);
     }
 
     const data = await res.json();

@@ -178,18 +178,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const searchDebounceRef = React.useRef<Record<string, number>>({});
 
-  const handleSearchChange = async (wpId: string, val: string) => {
+  const handleSearchChange = (wpId: string, val: string) => {
     setSearchQueries(prev => ({ ...prev, [wpId]: val }));
 
-    if (val.trim().length >= 2) {
-      setIsSearchingWpId(wpId);
-      const results = await searchPlaces(val);
-      setSearchResults(prev => ({ ...prev, [wpId]: results }));
-      setIsSearchingWpId(null);
-    } else {
-      setSearchResults(prev => ({ ...prev, [wpId]: [] }));
+    if (searchDebounceRef.current[wpId]) {
+      clearTimeout(searchDebounceRef.current[wpId]);
     }
+
+    const trimmed = val.trim();
+    if (trimmed.length < 2) {
+      setSearchResults(prev => ({ ...prev, [wpId]: [] }));
+      setIsSearchingWpId(null);
+      return;
+    }
+
+    // Show local matches immediately (0ms latency)
+    const localInstant = findLocalCities(trimmed);
+    if (localInstant.length > 0) {
+      setSearchResults(prev => ({
+        ...prev,
+        [wpId]: localInstant.map(c => ({ name: c.name, detail: c.detail, lat: c.lat, lng: c.lng }))
+      }));
+    }
+
+    // Debounce network geocode request by 250ms to prevent request thrashing
+    searchDebounceRef.current[wpId] = window.setTimeout(async () => {
+      setIsSearchingWpId(wpId);
+      try {
+        const results = await searchPlaces(trimmed);
+        setSearchResults(prev => ({ ...prev, [wpId]: results }));
+      } catch (err) {
+        console.warn('Autocomplete fetch error:', err);
+      } finally {
+        setIsSearchingWpId(null);
+      }
+    }, 250);
   };
 
   const handleSelectResult = (wpId: string, res: GeocodeResult) => {
@@ -212,14 +237,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return;
     }
 
-    // 1. Check existing autocomplete dropdown results
-    const cachedResults = searchResults[wpId];
-    if (cachedResults && cachedResults.length > 0) {
-      handleSelectResult(wpId, cachedResults[0]);
-      return;
-    }
-
-    // 2. Check instant local cities dictionary (e.g. Dortmund, Bremen, Köln, Münster)
+    // PRIORITY 1: Check instant local cities dictionary first (Dortmund, Bremen, Köln, Münster, etc.)
     const localMatches = findLocalCities(query);
     if (localMatches.length > 0) {
       handleSelectResult(wpId, {
@@ -231,17 +249,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return;
     }
 
-    // 3. Network search
-    setIsSearchingWpId(wpId);
-    const results = await searchPlaces(query);
-    setIsSearchingWpId(null);
+    // PRIORITY 2: Check existing autocomplete dropdown results if matching
+    const cachedResults = searchResults[wpId];
+    if (cachedResults && cachedResults.length > 0) {
+      const match = cachedResults.find(r => r.name.toLowerCase().includes(query.toLowerCase()));
+      if (match) {
+        handleSelectResult(wpId, match);
+        return;
+      }
+    }
 
-    if (results.length > 0) {
-      handleSelectResult(wpId, results[0]);
-    } else {
-      // Retain the typed name so it never reverts to Kurort Rathen or previous value
+    // PRIORITY 3: Network search with safe try/finally
+    setIsSearchingWpId(wpId);
+    try {
+      const results = await searchPlaces(query);
+      if (results.length > 0) {
+        handleSelectResult(wpId, results[0]);
+      } else {
+        onUpdateWaypoint(wpId, query, wp.lat, wp.lng);
+        setSearchResults(prev => ({ ...prev, [wpId]: [] }));
+      }
+    } catch (err) {
+      console.warn('Geocoding commit error:', err);
       onUpdateWaypoint(wpId, query, wp.lat, wp.lng);
       setSearchResults(prev => ({ ...prev, [wpId]: [] }));
+    } finally {
+      setIsSearchingWpId(null);
     }
   };
 

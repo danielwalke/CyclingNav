@@ -43,21 +43,20 @@ function getFromStorage<T>(key: string): T | null {
 }
 
 function setToStorage<T>(key: string, data: T, ttlMs = DEFAULT_TTL_MS): void {
+  const envelope: CacheEnvelope<T> = {
+    data,
+    timestamp: Date.now(),
+    ttl: ttlMs
+  };
+  const serialized = JSON.stringify(envelope);
+  memoryStore.set(key, serialized);
+
   try {
-    const envelope: CacheEnvelope<T> = {
-      data,
-      timestamp: Date.now(),
-      ttl: ttlMs
-    };
-    const serialized = JSON.stringify(envelope);
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.setItem(key, serialized);
-    } else {
-      memoryStore.set(key, serialized);
     }
-  } catch (err) {
-    // If quota exceeded, clear older biketour cache items
-    console.warn('LocalStorage quota notice, cleaning old cache:', err);
+  } catch {
+    // If quota exceeded, clean older cache items in background
     cleanOldCache();
   }
 }
