@@ -125,14 +125,13 @@ export const App: React.FC = () => {
     computeRoute(waypoints, profile);
   }, []);
 
-  // Update Waypoint
-  const handleUpdateWaypoint = (index: number, name: string, lat: number, lng: number) => {
+  // Update Waypoint by ID
+  const handleUpdateWaypoint = (id: string, name: string, lat: number, lng: number) => {
     setWaypoints(prev => {
-      const updated = [...prev];
-      if (updated[index]) {
-        updated[index] = { ...updated[index], name, lat, lng };
+      const updated = prev.map(w => (w.id === id ? { ...w, name, lat, lng } : w));
+      if (name.trim()) {
+        computeRoute(updated, profile);
       }
-      computeRoute(updated, profile);
       return updated;
     });
   };
@@ -169,11 +168,11 @@ export const App: React.FC = () => {
     });
   };
 
-  // Remove Waypoint
-  const handleRemoveWaypoint = (index: number) => {
+  // Remove Waypoint by ID
+  const handleRemoveWaypoint = (id: string) => {
     if (waypoints.length <= 2) return;
     setWaypoints(prev => {
-      const updated = prev.filter((_, i) => i !== index);
+      const updated = prev.filter(w => w.id !== id);
       // Ensure first is start, last is end
       updated[0].type = 'start';
       updated[updated.length - 1].type = 'end';
@@ -216,19 +215,29 @@ export const App: React.FC = () => {
       setWaypoints(newWps);
       computeRoute(newWps, profile);
     } else {
-      // Append as new stop before destination
-      const updated = [...waypoints];
-      const last = updated.pop()!;
-      updated.push({
-        id: `wp-${Date.now()}`,
-        name: revName,
-        lat,
-        lng,
-        type: 'via'
-      });
-      updated.push(last);
-      setWaypoints(updated);
-      computeRoute(updated, profile);
+      const last = waypoints[waypoints.length - 1];
+      // If destination is empty, placeholder or still the default initial template, set destination directly!
+      if (!last.name.trim() || last.name === 'Kurort Rathen (Bastei)' || last.name === 'Ziel') {
+        const updated = waypoints.map((w, idx) =>
+          idx === waypoints.length - 1 ? { ...w, name: revName, lat, lng } : w
+        );
+        setWaypoints(updated);
+        computeRoute(updated, profile);
+      } else {
+        // Otherwise append as new stop before destination
+        const updated = [...waypoints];
+        const dest = updated.pop()!;
+        updated.push({
+          id: `wp-${Date.now()}`,
+          name: revName,
+          lat,
+          lng,
+          type: 'via'
+        });
+        updated.push(dest);
+        setWaypoints(updated);
+        computeRoute(updated, profile);
+      }
     }
   };
 
@@ -280,7 +289,7 @@ export const App: React.FC = () => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         const name = await reverseGeocode(lat, lng);
-        handleUpdateWaypoint(0, `Mein Standort (${name})`, lat, lng);
+        handleUpdateWaypoint(waypoints[0].id, `Mein Standort (${name})`, lat, lng);
       },
       err => {
         setIsLocating(false);

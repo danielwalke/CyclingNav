@@ -15,11 +15,13 @@ import {
   Trash2,
   Trees,
   Upload,
+  X,
   Zap
 } from 'lucide-react';
 import type { BikeProfile, BikeRoute, BaseMapId, PresetTour, RouteColorMode, RouteSegment, Waypoint } from '../types';
 import type { GeocodeResult } from '../services/geocoding';
 import { searchPlaces } from '../services/geocoding';
+import { findLocalCities } from '../data/germanCities';
 import { PRESET_TOURS } from '../data/presetTours';
 import { UndergroundBreakdown } from './UndergroundBreakdown';
 import {
@@ -47,9 +49,9 @@ interface SidebarProps {
   onSetColorMode: (mode: RouteColorMode) => void;
   onHoverSegment: (segment: RouteSegment | null) => void;
   onSelectSegment: (segment: RouteSegment) => void;
-  onUpdateWaypoint: (index: number, name: string, lat: number, lng: number) => void;
+  onUpdateWaypoint: (id: string, name: string, lat: number, lng: number) => void;
   onAddWaypoint: () => void;
-  onRemoveWaypoint: (index: number) => void;
+  onRemoveWaypoint: (id: string) => void;
   onReverseRoute: () => void;
   onClearRoute: () => void;
   onGenerateRoundTrip: (distanceKm: number) => void;
@@ -87,10 +89,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImportGpx
 }) => {
   const [activeTab, setActiveTab] = useState<'planner' | 'underground' | 'tours' | 'steps' | 'layers'>('planner');
-  const [searchQueries, setSearchQueries] = useState<Record<number, string>>({});
-  const [searchResults, setSearchResults] = useState<Record<number, GeocodeResult[]>>({});
+  const [searchQueries, setSearchQueries] = useState<Record<string, string>>({});
+  const [searchResults, setSearchResults] = useState<Record<string, GeocodeResult[]>>({});
+  const [focusedWpId, setFocusedWpId] = useState<string | null>(null);
   const [roundTripKm, setRoundTripKm] = useState(30);
-  const [isSearchingIdx, setIsSearchingIdx] = useState<number | null>(null);
+  const [isSearchingWpId, setIsSearchingWpId] = useState<string | null>(null);
 
   // Cache & Offline state
   const [tileStats, setTileStats] = useState<TileCacheStats>({ tileCount: 0, estimatedSizeMb: 0 });
@@ -109,11 +112,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
     refreshCacheStats();
   }, [refreshCacheStats, activeTab]);
 
-  // Keep search queries in sync when waypoints change externally (e.g. Preset Tour loaded, Route reversed, Clear route)
+  // Synchronize search queries with waypoints without overwriting what the user is currently typing
   React.useEffect(() => {
-    setSearchQueries({});
-    setSearchResults({});
-  }, [waypoints]);
+    setSearchQueries(prev => {
+      const next: Record<string, string> = { ...prev };
+      const validIds = new Set(waypoints.map(w => w.id));
+
+      // Remove queries for deleted waypoints
+      for (const id of Object.keys(next)) {
+        if (!validIds.has(id)) {
+          delete next[id];
+        }
+      }
+
+      // Populate or update waypoints that aren't actively focused/edited
+      for (const wp of waypoints) {
+        if (wp.id !== focusedWpId) {
+          next[wp.id] = wp.name;
+        }
+      }
+      return next;
+    });
+
+    // Clean up search results for non-focused waypoints
+    setSearchResults(prev => {
+      const next: Record<string, GeocodeResult[]> = {};
+      if (focusedWpId && prev[focusedWpId]) {
+        next[focusedWpId] = prev[focusedWpId];
+      }
+      return next;
+    });
+  }, [waypoints, focusedWpId]);
 
   const handlePrecacheTour = async () => {
     if (!route || route.coordinates.length === 0) return;
@@ -150,44 +179,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleSearchChange = async (index: number, val: string) => {
-    setSearchQueries(prev => ({ ...prev, [index]: val }));
+  const handleSearchChange = async (wpId: string, val: string) => {
+    setSearchQueries(prev => ({ ...prev, [wpId]: val }));
+
     if (val.trim().length >= 2) {
-      setIsSearchingIdx(index);
+      setIsSearchingWpId(wpId);
       const results = await searchPlaces(val);
-      setSearchResults(prev => ({ ...prev, [index]: results }));
-      setIsSearchingIdx(null);
+      setSearchResults(prev => ({ ...prev, [wpId]: results }));
+      setIsSearchingWpId(null);
     } else {
-      setSearchResults(prev => ({ ...prev, [index]: [] }));
+      setSearchResults(prev => ({ ...prev, [wpId]: [] }));
     }
   };
-  const handleSelectResult = (index: number, res: GeocodeResult) => {
-    onUpdateWaypoint(index, res.name, res.lat, res.lng);
-    setSearchQueries(prev => ({ ...prev, [index]: res.name }));
-    setSearchResults(prev => ({ ...prev, [index]: [] }));
+
+  const handleSelectResult = (wpId: string, res: GeocodeResult) => {
+    onUpdateWaypoint(wpId, res.name, res.lat, res.lng);
+    setSearchQueries(prev => ({ ...prev, [wpId]: res.name }));
+    setSearchResults(prev => ({ ...prev, [wpId]: [] }));
   };
 
-  const handleCommitSearch = async (index: number) => {
-    const query = (searchQueries[index] ?? '').trim();
-    if (query.length < 2) return;
+  const handleCommitSearch = async (wpId: string) => {
+    const wp = waypoints.find(w => w.id === wpId);
+    if (!wp) return;
+
+    const raw = searchQueries[wpId];
+    const query = (raw !== undefined ? raw : wp.name || '').trim();
+    if (!query) return;
 
     // Check if query is already the waypoint name
-    if (query === waypoints[index]?.name) {
-      setSearchResults(prev => ({ ...prev, [index]: [] }));
+    if (query.toLowerCase() === (wp.name || '').toLowerCase()) {
+      setSearchResults(prev => ({ ...prev, [wpId]: [] }));
       return;
     }
 
-    const cachedResults = searchResults[index];
+    // 1. Check existing autocomplete dropdown results
+    const cachedResults = searchResults[wpId];
     if (cachedResults && cachedResults.length > 0) {
-      handleSelectResult(index, cachedResults[0]);
+      handleSelectResult(wpId, cachedResults[0]);
       return;
     }
 
-    setIsSearchingIdx(index);
+    // 2. Check instant local cities dictionary (e.g. Dortmund, Bremen, Köln, Münster)
+    const localMatches = findLocalCities(query);
+    if (localMatches.length > 0) {
+      handleSelectResult(wpId, {
+        name: localMatches[0].name,
+        detail: localMatches[0].detail,
+        lat: localMatches[0].lat,
+        lng: localMatches[0].lng
+      });
+      return;
+    }
+
+    // 3. Network search
+    setIsSearchingWpId(wpId);
     const results = await searchPlaces(query);
-    setIsSearchingIdx(null);
+    setIsSearchingWpId(null);
+
     if (results.length > 0) {
-      handleSelectResult(index, results[0]);
+      handleSelectResult(wpId, results[0]);
+    } else {
+      // Retain the typed name so it never reverts to Kurort Rathen or previous value
+      onUpdateWaypoint(wpId, query, wp.lat, wp.lng);
+      setSearchResults(prev => ({ ...prev, [wpId]: [] }));
     }
   };
 
@@ -386,8 +440,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {waypoints.map((wp, idx) => {
                   const isStart = idx === 0;
                   const isEnd = idx === waypoints.length - 1 && waypoints.length > 1;
-                  const query = searchQueries[idx] ?? wp.name;
-                  const results = searchResults[idx] || [];
+                  const query = searchQueries[wp.id] !== undefined ? searchQueries[wp.id] : wp.name;
+                  const results = searchResults[wp.id] || [];
 
                   return (
                     <div key={wp.id} className="relative">
@@ -404,30 +458,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           type="text"
                           placeholder={isStart ? 'Startort in Deutschland...' : isEnd ? 'Zielort...' : `Zwischenstopp ${idx}...`}
                           value={query}
-                          onChange={e => handleSearchChange(idx, e.target.value)}
+                          onFocus={e => {
+                            setFocusedWpId(wp.id);
+                            e.target.select();
+                          }}
+                          onChange={e => handleSearchChange(wp.id, e.target.value)}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              handleCommitSearch(idx);
+                              handleCommitSearch(wp.id);
                             }
                           }}
                           onBlur={() => {
-                            // Delay slightly so clicking a dropdown item registers before blur triggers commit
-                            setTimeout(() => {
-                              handleCommitSearch(idx);
-                            }, 200);
+                            setFocusedWpId(null);
+                            handleCommitSearch(wp.id);
                           }}
                           className="flex-1 text-xs bg-transparent border-none outline-none font-medium text-slate-800 placeholder-slate-400"
                         />
 
-                        {isSearchingIdx === idx && (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                        {isSearchingWpId === wp.id && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600 shrink-0" />
+                        )}
+
+                        {query.length > 0 && (
+                          <button
+                            type="button"
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              setSearchQueries(prev => ({ ...prev, [wp.id]: '' }));
+                              setSearchResults(prev => ({ ...prev, [wp.id]: [] }));
+                              onUpdateWaypoint(wp.id, '', wp.lat, wp.lng);
+                            }}
+                            className="p-0.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/50 transition-colors shrink-0"
+                            title="Feld leeren"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         )}
 
                         {waypoints.length > 2 && (
                           <button
-                            onClick={() => onRemoveWaypoint(idx)}
-                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                            onClick={() => onRemoveWaypoint(wp.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors shrink-0"
                             title="Entfernen"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -443,9 +515,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               key={rIdx}
                               onMouseDown={e => {
                                 e.preventDefault();
-                                handleSelectResult(idx, r);
+                                handleSelectResult(wp.id, r);
                               }}
-                              onClick={() => handleSelectResult(idx, r)}
+                              onClick={() => handleSelectResult(wp.id, r)}
                               className="w-full px-3 py-2 text-left hover:bg-emerald-50/70 transition-colors flex items-start gap-2 cursor-pointer"
                             >
                               <MapPin className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />

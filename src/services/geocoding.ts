@@ -1,4 +1,5 @@
 import { getCachedGeocode, setCachedGeocode } from './dataCache';
+import { findLocalCities } from '../data/germanCities';
 
 export interface GeocodeResult {
   name: string;
@@ -9,6 +10,8 @@ export interface GeocodeResult {
 
 export async function searchPlaces(query: string): Promise<GeocodeResult[]> {
   if (!query || query.trim().length < 2) return [];
+
+  const localMatches = findLocalCities(query);
 
   const cached = getCachedGeocode(query);
   if (cached && cached.length > 0) {
@@ -48,11 +51,18 @@ export async function searchPlaces(query: string): Promise<GeocodeResult[]> {
         };
       });
 
+      // Merge local matches that aren't duplicates
+      const existingNames = new Set(results.map(r => r.name.toLowerCase()));
+      for (const lm of localMatches) {
+        if (!existingNames.has(lm.name.toLowerCase())) {
+          results.push({ name: lm.name, detail: lm.detail, lat: lm.lat, lng: lm.lng });
+        }
+      }
+
       setCachedGeocode(query, results);
       return results;
     }
   } catch (err) {
-
     console.warn('Photon geocoding failed, trying Nominatim fallback:', err);
   }
 
@@ -66,17 +76,34 @@ export async function searchPlaces(query: string): Promise<GeocodeResult[]> {
         'Accept-Language': 'de'
       }
     });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.map((item: any) => ({
-      name: item.name || item.display_name.split(',')[0],
-      detail: item.display_name,
-      lat: parseFloat(item.lat),
-      lng: parseFloat(item.lon)
-    }));
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const nomResults = data.map((item: any) => ({
+          name: item.name || item.display_name.split(',')[0],
+          detail: item.display_name,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon)
+        }));
+        setCachedGeocode(query, nomResults);
+        return nomResults;
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+
+  // Final fallback to local offline matches
+  if (localMatches.length > 0) {
+    return localMatches.map(lm => ({
+      name: lm.name,
+      detail: lm.detail,
+      lat: lm.lat,
+      lng: lm.lng
+    }));
+  }
+
+  return [];
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<string> {
