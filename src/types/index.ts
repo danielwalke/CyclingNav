@@ -61,6 +61,39 @@ export type SurfaceCategory =
   | 'natur'
   | 'sonstige';
 
+export type NetworkCategory =
+  | 'd-route'
+  | 'rcn' // Regional cycle network (Flussradwege etc.)
+  | 'lcn' // Local cycle network / Fahrradstraßen
+  | 'other'; // Other roads
+
+export interface DRouteInfo {
+  code: string; // e.g. 'D7', 'D3', 'D1', 'D8', 'D10', etc.
+  name: string; // e.g. 'Pilgerroute (EuroVelo 3)'
+  fullName: string; // e.g. 'D-Route 7: Pilgerroute (EuroVelo 3)'
+  color: string;
+}
+
+export interface RouteNetworkShare {
+  id: string; // 'D7', 'D3', 'rcn', 'lcn', 'other'
+  code?: string; // 'D7', 'D3', 'D1', etc.
+  name: string; // 'D7 Pilgerroute (EV3)', 'Regionale Radfernwege', etc.
+  category: NetworkCategory;
+  distanceMeters: number;
+  distanceKm: number;
+  percent: number;
+  color: string;
+  description: string;
+}
+
+export interface RouteNetworkBreakdown {
+  items: RouteNetworkShare[];
+  totalDRouteKm: number;
+  totalDRoutePercent: number;
+  totalCycleNetworkKm: number;
+  totalCycleNetworkPercent: number;
+}
+
 export interface RouteSegment {
   id: string;
   fromKm: number;
@@ -74,6 +107,9 @@ export interface RouteSegment {
   coordinates: [number, number][]; // [lat, lng]
   isBundesstrasse: boolean;
   isCycleway: boolean;
+  dRoute?: DRouteInfo;
+  networkCategory?: NetworkCategory;
+  networkName?: string;
 }
 
 export interface WayTypeStats {
@@ -105,6 +141,7 @@ export interface BikeRoute {
   surfaceStats: SurfaceStats;
   wayTypeStats: WayTypeStats;
   detailedSurfaceStats: DetailedSurfaceStats;
+  networkBreakdown: RouteNetworkBreakdown;
   segments: RouteSegment[];
   instructions: RouteInstruction[];
   profile: BikeProfile;
@@ -112,7 +149,7 @@ export interface BikeRoute {
 }
 
 export type BaseMapId = 'cyclosm' | 'osm' | 'opentopo';
-export type RouteColorMode = 'default' | 'waytype' | 'surface';
+export type RouteColorMode = 'default' | 'waytype' | 'surface' | 'droute';
 
 export interface MapLayerConfig {
   id: BaseMapId;

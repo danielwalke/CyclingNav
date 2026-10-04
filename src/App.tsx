@@ -28,6 +28,7 @@ import { exportRouteToGpx, parseGpxFile } from './services/gpx';
 import { fetchPoisInBounds } from './services/poi';
 import { speechService } from './services/speech';
 import { reverseGeocode } from './services/geocoding';
+import { calculateRouteNetworkBreakdown, classifyRouteSegmentNetwork } from './services/dRouteClassifier';
 import { Menu, X } from 'lucide-react';
 
 
@@ -350,18 +351,39 @@ export const App: React.FC = () => {
           const parsed = parseGpxFile(content);
           if (parsed.coordinates.length >= 2) {
             setWaypoints(parsed.waypoints);
+            const dist = parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000;
+            const importedCoords = parsed.coordinates.map(c => [c.lat, c.lng] as [number, number]);
+            const importedNet = classifyRouteSegmentNetwork(importedCoords, '', true);
+            const importedSeg: RouteSegment = {
+              id: 'imported-seg-1',
+              fromKm: 0,
+              toKm: Number((dist / 1000).toFixed(1)),
+              distanceMeters: dist,
+              wayType: 'radweg',
+              wayTypeName: 'Importierter Radweg',
+              surface: 'asphalt',
+              surfaceName: 'Asphalt',
+              coordinates: importedCoords,
+              isBundesstrasse: false,
+              isCycleway: true,
+              dRoute: importedNet.dRoute,
+              networkCategory: importedNet.category,
+              networkName: importedNet.networkName
+            };
+            const importedBreakdown = calculateRouteNetworkBreakdown([importedSeg], dist);
+
             const importedRoute: BikeRoute = {
               id: `imported-${Date.now()}`,
               name: parsed.name,
               coordinates: parsed.coordinates,
-              distance: parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000,
-              duration: Math.round((parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000) / 4.5),
+              distance: dist,
+              duration: Math.round(dist / 4.5),
               ascent: 50,
               descent: 50,
               cyclingWayPercent: 90,
               surfaceStats: { asphalt: 85, paved: 10, gravel: 5, unpaved: 0, other: 0 },
               wayTypeStats: {
-                radwegMeters: Math.round(parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000),
+                radwegMeters: dist,
                 nebenstrasseMeters: 0,
                 wirtschaftswegMeters: 0,
                 landesstrasseMeters: 0,
@@ -369,13 +391,14 @@ export const App: React.FC = () => {
                 sonstigeMeters: 0
               },
               detailedSurfaceStats: {
-                asphaltMeters: Math.round((parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000) * 0.85),
-                pflasterMeters: Math.round((parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000) * 0.1),
-                schotterMeters: Math.round((parsed.coordinates[parsed.coordinates.length - 1].distanceFromStart || 1000) * 0.05),
+                asphaltMeters: Math.round(dist * 0.85),
+                pflasterMeters: Math.round(dist * 0.1),
+                schotterMeters: Math.round(dist * 0.05),
                 naturMeters: 0,
                 sonstigeMeters: 0
               },
-              segments: [],
+              networkBreakdown: importedBreakdown,
+              segments: [importedSeg],
               instructions: [],
               profile: 'safety',
               waypoints: parsed.waypoints

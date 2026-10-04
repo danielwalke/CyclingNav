@@ -1,7 +1,14 @@
 import React from 'react';
-import type { RouteColorMode, RouteSegment, DetailedSurfaceStats, WayTypeStats } from '../types';
+import type {
+  DetailedSurfaceStats,
+  RouteColorMode,
+  RouteNetworkBreakdown,
+  RouteSegment,
+  WayTypeStats
+} from '../types';
 import {
   AlertTriangle,
+  Award,
   Eye,
   Layers,
   MapPin,
@@ -10,12 +17,11 @@ import {
   Trees
 } from 'lucide-react';
 
-
-
 interface UndergroundBreakdownProps {
   totalDistanceMeters: number;
   wayTypeStats: WayTypeStats;
   detailedSurfaceStats: DetailedSurfaceStats;
+  networkBreakdown?: RouteNetworkBreakdown;
   segments: RouteSegment[];
   colorMode: RouteColorMode;
   onSetColorMode: (mode: RouteColorMode) => void;
@@ -28,6 +34,7 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
   totalDistanceMeters,
   wayTypeStats,
   detailedSurfaceStats,
+  networkBreakdown,
   segments,
   colorMode,
   onSetColorMode,
@@ -87,7 +94,7 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
           <Layers className="w-3.5 h-3.5 text-emerald-600" />
           <span>Routenlinie auf Karte einfärben</span>
         </label>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5">
           <button
             onClick={() => onSetColorMode('default')}
             className={`py-1.5 px-2 rounded-xl text-xs font-semibold border transition-all ${
@@ -96,7 +103,18 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
                 : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
             }`}
           >
-            Fahrradlinie
+            Standard-Radlinie
+          </button>
+          <button
+            onClick={() => onSetColorMode('droute')}
+            className={`py-1.5 px-2 rounded-xl text-xs font-semibold border transition-all ${
+              colorMode === 'droute'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50/50'
+            }`}
+            title="D-Routen (D1-D12), regionale Radfernwege und lokale Netze"
+          >
+            🚴 Nach D-Route / Netz
           </button>
           <button
             onClick={() => onSetColorMode('waytype')}
@@ -127,38 +145,149 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
       <div className="space-y-1.5">
         <div className="flex justify-between text-xs font-bold text-slate-700">
           <span>Streckenverlauf (Gesamt {formatKm(total)} km)</span>
-          <span className="text-[11px] font-normal text-slate-500">Fahre mit Maus über Segmente</span>
+          <span className="text-[11px] font-normal text-slate-500">
+            {colorMode === 'droute' ? 'Farben: D-Routen & Netze' : 'Fahre mit Maus über Segmente'}
+          </span>
         </div>
         <div className="w-full h-3.5 rounded-full overflow-hidden flex bg-slate-200 shadow-inner">
           {segments.map((seg, idx) => {
-            const widthPct = Math.max(1, (seg.distanceMeters / total) * 100);
+            const widthPct = Math.max(0.8, (seg.distanceMeters / total) * 100);
             let bgClass = 'bg-emerald-500'; // radweg
-            if (seg.wayType === 'bundesstrasse') bgClass = 'bg-rose-600';
-            else if (seg.wayType === 'landesstrasse') bgClass = 'bg-purple-500';
-            else if (seg.wayType === 'nebenstrasse') bgClass = 'bg-sky-500';
-            else if (seg.wayType === 'wirtschaftsweg') bgClass = 'bg-amber-600';
+            let customBg = '';
+
+            if (colorMode === 'droute') {
+              if (seg.networkCategory === 'd-route' && seg.dRoute) {
+                customBg = seg.dRoute.color;
+              } else if (seg.networkCategory === 'rcn') {
+                customBg = '#10b981';
+              } else if (seg.networkCategory === 'lcn' || seg.isCycleway) {
+                customBg = '#3b82f6';
+              } else {
+                customBg = '#94a3b8';
+              }
+            } else if (colorMode === 'surface') {
+              if (seg.surface === 'asphalt') bgClass = 'bg-slate-600';
+              else if (seg.surface === 'pflaster') bgClass = 'bg-sky-500';
+              else if (seg.surface === 'schotter') bgClass = 'bg-amber-600';
+              else if (seg.surface === 'natur') bgClass = 'bg-emerald-700';
+            } else {
+              if (seg.wayType === 'bundesstrasse') bgClass = 'bg-rose-600';
+              else if (seg.wayType === 'landesstrasse') bgClass = 'bg-purple-500';
+              else if (seg.wayType === 'nebenstrasse') bgClass = 'bg-sky-500';
+              else if (seg.wayType === 'wirtschaftsweg') bgClass = 'bg-amber-600';
+            }
 
             const isHovered = hoveredSegment?.id === seg.id;
 
             return (
               <div
                 key={seg.id || idx}
-                style={{ width: `${widthPct}%` }}
+                style={{ width: `${widthPct}%`, backgroundColor: customBg || undefined }}
                 onMouseEnter={() => onHoverSegment(seg)}
                 onMouseLeave={() => onHoverSegment(null)}
                 onClick={() => onSelectSegment(seg)}
-                className={`${bgClass} h-full cursor-pointer transition-opacity ${
+                className={`${customBg ? '' : bgClass} h-full cursor-pointer transition-opacity ${
                   isHovered ? 'ring-2 ring-white opacity-100 z-10 scale-y-125' : 'opacity-90 hover:opacity-100'
                 }`}
-                title={`km ${seg.fromKm} - ${seg.toKm}: ${seg.wayTypeName} (${seg.surfaceName})`}
+                title={`km ${seg.fromKm} - ${seg.toKm}: ${seg.dRoute ? seg.dRoute.fullName : seg.wayTypeName} (${seg.surfaceName})`}
               />
             );
           })}
         </div>
       </div>
 
-      {/* Section 1: Wegearten & Straßenklassen (Way Types) */}
-      <div className="space-y-2 pt-1">
+      {/* SECTION 1: RADNETZ DEUTSCHLAND & D-ROUTEN ANTEIL */}
+      {networkBreakdown && networkBreakdown.items.length > 0 && (
+        <div className="space-y-3 pt-1">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+              <Award className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Radnetz Deutschland & D-Routen</span>
+            </label>
+            <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-extrabold border border-indigo-200">
+              {networkBreakdown.totalDRoutePercent}% D-Netz Anteil
+            </span>
+          </div>
+
+          {/* D-Route Multi-Bar */}
+          <div className="space-y-1">
+            <div className="w-full h-3 rounded-full overflow-hidden flex bg-slate-200 shadow-inner">
+              {networkBreakdown.items.map(item => (
+                <div
+                  key={item.id}
+                  style={{ width: `${item.percent}%`, backgroundColor: item.color }}
+                  className="h-full"
+                  title={`${item.name}: ${item.distanceKm} km (${item.percent}%)`}
+                />
+              ))}
+            </div>
+            <div className="flex justify-between text-[11px] text-slate-500">
+              <span>{networkBreakdown.totalDRouteKm} km auf D-Routen</span>
+              <span className="font-semibold text-emerald-700">
+                {networkBreakdown.totalCycleNetworkPercent}% im Radverkehrsnetz
+              </span>
+            </div>
+          </div>
+
+          {/* Detailed Network Breakdown Cards */}
+          <div className="space-y-2">
+            {networkBreakdown.items.map(item => {
+              const isDRoute = item.category === 'd-route';
+
+              return (
+                <div
+                  key={item.id}
+                  className={`p-3 rounded-xl border transition-all ${
+                    isDRoute
+                      ? 'border-indigo-200 bg-indigo-50/40'
+                      : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <div className="flex justify-between items-center text-xs font-bold">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className={isDRoute ? 'text-indigo-950 font-extrabold' : 'text-slate-900'}>
+                        {item.name}
+                      </span>
+                      {isDRoute && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-indigo-600 text-white">
+                          D-Netz
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-slate-900 font-extrabold">{item.distanceKm} km</span>{' '}
+                      <span
+                        className="text-[11px] font-bold"
+                        style={{ color: item.color }}
+                      >
+                        ({item.percent}%)
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    {item.description}
+                  </p>
+
+                  <div className="w-full h-1.5 bg-slate-100 rounded-full mt-2 overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${item.percent}%`, backgroundColor: item.color }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Section 2: Wegearten & Straßenklassen (Way Types) */}
+      <div className="space-y-2 pt-2 border-t border-slate-200">
         <div className="flex items-center justify-between">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <Route className="w-3.5 h-3.5 text-emerald-600" />
@@ -254,48 +383,10 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
               />
             </div>
           </div>
-
-          {/* Bundesstraßen */}
-          <div
-            className={`p-2.5 rounded-xl border transition-all ${
-              hasBundesstrasse
-                ? 'border-rose-300 bg-rose-50/50'
-                : 'border-slate-200 bg-white'
-            }`}
-          >
-            <div className="flex justify-between items-center text-xs font-bold">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`w-3 h-3 rounded-full ${
-                    hasBundesstrasse ? 'bg-rose-600 animate-pulse' : 'bg-slate-300'
-                  }`}
-                ></span>
-                <span className={hasBundesstrasse ? 'text-rose-900 font-extrabold' : 'text-slate-900'}>
-                  Bundesstraße (B-Straße)
-                </span>
-              </div>
-              <div className="text-slate-800">
-                {bundesstrasseKm} km{' '}
-                <span
-                  className={`font-semibold text-[11px] ${
-                    hasBundesstrasse ? 'text-rose-700' : 'text-slate-500'
-                  }`}
-                >
-                  ({bundesstrassePercent}%)
-                </span>
-              </div>
-            </div>
-            <div className="w-full h-1.5 bg-slate-100 rounded-full mt-2 overflow-hidden">
-              <div
-                className="bg-rose-600 h-full rounded-full"
-                style={{ width: `${bundesstrassePercent}%` }}
-              />
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Section 2: Untergrund / Oberflächenzusammensetzung */}
+      {/* Section 3: Untergrund & Oberflächenbelag */}
       <div className="space-y-2 pt-2 border-t border-slate-200">
         <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
           <Trees className="w-3.5 h-3.5 text-emerald-600" />
@@ -345,7 +436,7 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
         </div>
       </div>
 
-      {/* Section 3: Wo verläuft was? Chronologische Streckenabschnitte */}
+      {/* Section 4: Wo verläuft was? Chronologische Streckenabschnitte */}
       <div className="space-y-2 pt-2 border-t border-slate-200">
         <div className="flex items-center justify-between">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
@@ -390,10 +481,26 @@ export const UndergroundBreakdown: React.FC<UndergroundBreakdownProps> = ({
                       ({formatKm(seg.distanceMeters)} km)
                     </span>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-md border ${badgeBg}`}>
-                    {seg.wayTypeName}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {seg.dRoute && (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white"
+                        style={{ backgroundColor: seg.dRoute.color }}
+                      >
+                        {seg.dRoute.code}
+                      </span>
+                    )}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-md border ${badgeBg}`}>
+                      {seg.wayTypeName}
+                    </span>
+                  </div>
                 </div>
+
+                {seg.dRoute && (
+                  <div className="mt-1 text-[11px] font-semibold text-indigo-700">
+                    {seg.dRoute.fullName}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between mt-2 text-[11px] text-slate-600">
                   <div className="flex items-center gap-1.5">

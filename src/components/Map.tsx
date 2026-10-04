@@ -243,7 +243,7 @@ export const Map: React.FC<MapProps> = ({
       });
       group.addLayer(corePolyline);
     } else {
-      // Color code by Wegeart (Way Type) or Untergrund (Surface)
+      // Color code by Wegeart (Way Type), Untergrund (Surface), or D-Route / Radnetz
       route.segments.forEach(seg => {
         if (!seg.coordinates || seg.coordinates.length < 2) return;
 
@@ -261,6 +261,16 @@ export const Map: React.FC<MapProps> = ({
           else if (seg.surface === 'schotter') segColor = '#d97706'; // Orange/Amber
           else if (seg.surface === 'natur') segColor = '#15803d'; // Green/Nature
           else segColor = '#64748b';
+        } else if (colorMode === 'droute') {
+          if (seg.networkCategory === 'd-route' && seg.dRoute) {
+            segColor = seg.dRoute.color;
+          } else if (seg.networkCategory === 'rcn') {
+            segColor = '#10b981'; // Emerald for regional cycle network
+          } else if (seg.networkCategory === 'lcn' || seg.isCycleway) {
+            segColor = '#3b82f6'; // Blue for local cycle paths
+          } else {
+            segColor = '#94a3b8'; // Slate for other roads
+          }
         }
 
         const segPolyline = L.polyline(seg.coordinates, {
@@ -271,8 +281,9 @@ export const Map: React.FC<MapProps> = ({
           lineJoin: 'round'
         });
 
+        const dRouteLabel = seg.dRoute ? `<div class="text-[10px] font-extrabold text-indigo-600">${seg.dRoute.fullName}</div>` : '';
         segPolyline.bindTooltip(
-          `<div class="text-xs font-bold">${seg.wayTypeName}</div><div class="text-[11px] text-slate-500">${seg.surfaceName} (km ${seg.fromKm}-${seg.toKm})</div>`,
+          `<div class="text-xs font-bold">${seg.wayTypeName}</div>${dRouteLabel}<div class="text-[11px] text-slate-500">${seg.surfaceName} (km ${seg.fromKm}-${seg.toKm})</div>`,
           { sticky: true }
         );
 

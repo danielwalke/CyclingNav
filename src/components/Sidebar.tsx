@@ -659,6 +659,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 </div>
 
+                {/* Official D-Route & Network Share Breakdown */}
+                {route.networkBreakdown && route.networkBreakdown.items.length > 0 && (
+                  <div className="space-y-1.5 text-xs pt-1">
+                    <div className="flex justify-between items-center text-[11px] text-slate-300 font-medium">
+                      <span className="flex items-center gap-1 font-bold text-indigo-300">
+                        <span>Radnetz & D-Routen Anteil</span>
+                      </span>
+                      <span className="text-emerald-400 font-bold">
+                        {route.networkBreakdown.totalDRoutePercent > 0
+                          ? `${route.networkBreakdown.totalDRoutePercent}% D-Netz`
+                          : `${route.networkBreakdown.totalCycleNetworkPercent}% Radnetz`}
+                      </span>
+                    </div>
+
+                    {/* Multi-segment stacked bar */}
+                    <div className="w-full h-2.5 rounded-full overflow-hidden flex bg-slate-800 shadow-inner">
+                      {route.networkBreakdown.items.map(item => (
+                        <div
+                          key={item.id}
+                          style={{
+                            width: `${item.percent}%`,
+                            backgroundColor: item.color
+                          }}
+                          className="h-full transition-all"
+                          title={`${item.name}: ${item.distanceKm} km (${item.percent}%)`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Share pills / list */}
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {route.networkBreakdown.items.map(item => (
+                        <span
+                          key={item.id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800/90 text-slate-200 border border-slate-700/80"
+                          title={`${item.description} - ${item.distanceKm} km`}
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className={item.category === 'd-route' ? 'text-indigo-300' : ''}>
+                            {item.code || item.name}
+                          </span>
+                          <span className="text-emerald-400 font-extrabold">{item.percent}%</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Underground & Bundesstraße quick banner */}
                 <button
                   onClick={() => setActiveTab('underground')}
@@ -747,6 +798,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 totalDistanceMeters={route.distance}
                 wayTypeStats={route.wayTypeStats}
                 detailedSurfaceStats={route.detailedSurfaceStats}
+                networkBreakdown={route.networkBreakdown}
                 segments={route.segments}
                 colorMode={colorMode}
                 onSetColorMode={onSetColorMode}

@@ -182,5 +182,113 @@ describe('Bike Tour Routing & Geocoding Service', () => {
     expect(stats.routeCount).toBeGreaterThanOrEqual(1);
     expect(stats.geocodeCount).toBeGreaterThanOrEqual(1);
   });
+
+  it('correctly classifies D-Routes and computes percentage breakdown', async () => {
+    const { classifyRouteSegmentNetwork, calculateRouteNetworkBreakdown, OFFICIAL_D_ROUTES } =
+      await import('../services/dRouteClassifier');
+
+    expect(OFFICIAL_D_ROUTES.length).toBe(12);
+    expect(OFFICIAL_D_ROUTES.map(d => d.code)).toEqual([
+      'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12'
+    ]);
+
+    // Test Bremen segment matching D7 (Pilgerroute / EV3)
+    const d7Classification = classifyRouteSegmentNetwork(
+      [[53.05, 8.80], [53.00, 8.80]],
+      'highway=cycleway route_bicycle_ncn=yes',
+      true
+    );
+    expect(d7Classification.category).toBe('d-route');
+    expect(d7Classification.dRoute?.code).toBe('D7');
+    expect(d7Classification.dRoute?.fullName).toContain('Pilgerroute');
+
+    // Test Münster area intersection with D3 (Europa-Radweg R1)
+    const d3Classification = classifyRouteSegmentNetwork(
+      [[51.96, 7.62]],
+      'ref=D3 route_bicycle_ncn=yes',
+      true
+    );
+    expect(d3Classification.category).toBe('d-route');
+    expect(d3Classification.dRoute?.code).toBe('D3');
+
+    // Test Elberadweg matching D10
+    const d10Classification = classifyRouteSegmentNetwork(
+      [[51.05, 13.73]],
+      'highway=cycleway name=Elberadweg route_bicycle_ncn=yes',
+      true
+    );
+    expect(d10Classification.category).toBe('d-route');
+    expect(d10Classification.dRoute?.code).toBe('D10');
+
+    // Test RouteNetworkBreakdown calculation (e.g. 60% D7, 10% D3, 20% RCN, 10% other)
+    const testSegments: any[] = [
+      {
+        id: 's1',
+        fromKm: 0,
+        toKm: 60,
+        distanceMeters: 60000,
+        networkCategory: 'd-route',
+        dRoute: { code: 'D7', name: 'Pilgerroute (EV3)', fullName: 'D-Route 7: Pilgerroute (EV3)', color: '#6366f1' },
+        wayType: 'radweg',
+        isCycleway: true
+      },
+      {
+        id: 's2',
+        fromKm: 60,
+        toKm: 70,
+        distanceMeters: 10000,
+        networkCategory: 'd-route',
+        dRoute: { code: 'D3', name: 'Europa-Radweg R1', fullName: 'D-Route 3: Europa-Radweg R1', color: '#059669' },
+        wayType: 'radweg',
+        isCycleway: true
+      },
+      {
+        id: 's3',
+        fromKm: 70,
+        toKm: 90,
+        distanceMeters: 20000,
+        networkCategory: 'rcn',
+        wayType: 'radweg',
+        isCycleway: true
+      },
+      {
+        id: 's4',
+        fromKm: 90,
+        toKm: 100,
+        distanceMeters: 10000,
+        networkCategory: 'other',
+        wayType: 'nebenstrasse',
+        isCycleway: false
+      }
+    ];
+
+    const breakdown = calculateRouteNetworkBreakdown(testSegments, 100000);
+    expect(breakdown.items.length).toBe(4);
+    expect(breakdown.totalDRoutePercent).toBe(70);
+    expect(breakdown.totalDRouteKm).toBe(70);
+    expect(breakdown.totalCycleNetworkPercent).toBe(90);
+
+    const d7Share = breakdown.items.find(i => i.id === 'D7');
+    expect(d7Share).toBeDefined();
+    expect(d7Share?.percent).toBe(60);
+    expect(d7Share?.distanceKm).toBe(60);
+
+    const d3Share = breakdown.items.find(i => i.id === 'D3');
+    expect(d3Share).toBeDefined();
+    expect(d3Share?.percent).toBe(10);
+    expect(d3Share?.distanceKm).toBe(10);
+
+    const rcnShare = breakdown.items.find(i => i.id === 'rcn');
+    expect(rcnShare).toBeDefined();
+    expect(rcnShare?.percent).toBe(20);
+
+    const otherShare = breakdown.items.find(i => i.id === 'other');
+    expect(otherShare).toBeDefined();
+    expect(otherShare?.percent).toBe(10);
+
+    // Sum of percentages must equal 100%
+    const sumPct = breakdown.items.reduce((sum, item) => sum + item.percent, 0);
+    expect(sumPct).toBe(100);
+  });
 });
 

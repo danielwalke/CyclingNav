@@ -13,6 +13,10 @@ import type {
   WayTypeStats
 } from '../types';
 import { getCachedRoute, getRouteCacheKey, setCachedRoute } from './dataCache';
+import {
+  calculateRouteNetworkBreakdown,
+  classifyRouteSegmentNetwork
+} from './dRouteClassifier';
 
 
 
@@ -311,6 +315,7 @@ export function parseRouteSegments(
     startDist: number;
     endDist: number;
     classification: ReturnType<typeof classifySegmentTags>;
+    netClassification: ReturnType<typeof classifyRouteSegmentNetwork>;
     startPoint: [number, number];
   }> = [];
 
@@ -325,6 +330,7 @@ export function parseRouteSegments(
       const classification = classifySegmentTags(tags);
       const lon = Number(row[0]) / 1e6;
       const lat = Number(row[1]) / 1e6;
+      const netClassification = classifyRouteSegmentNetwork([[lat, lon]], tags, classification.isCycleway);
 
       // Stats accumulation
       if (classification.wayType === 'bundesstrasse') wayTypeStats.bundesstrasseMeters += segDist;
@@ -345,6 +351,7 @@ export function parseRouteSegments(
         startDist: cumDist,
         endDist: cumDist + segDist,
         classification,
+        netClassification,
         startPoint: [lat, lon]
       });
 
@@ -364,7 +371,9 @@ export function parseRouteSegments(
       currentGroup &&
       currentGroup.classification.wayType === item.classification.wayType &&
       currentGroup.classification.surface === item.classification.surface &&
-      currentGroup.classification.ref === item.classification.ref
+      currentGroup.classification.ref === item.classification.ref &&
+      currentGroup.netClassification.dRoute?.code === item.netClassification.dRoute?.code &&
+      currentGroup.netClassification.category === item.netClassification.category
     ) {
       groupDist += item.dist;
     } else {
@@ -392,7 +401,10 @@ export function parseRouteSegments(
           ref: currentGroup.classification.ref,
           coordinates: segCoords.length > 0 ? segCoords : [currentGroup.startPoint],
           isBundesstrasse: currentGroup.classification.isBundesstrasse,
-          isCycleway: currentGroup.classification.isCycleway
+          isCycleway: currentGroup.classification.isCycleway,
+          dRoute: currentGroup.netClassification.dRoute,
+          networkCategory: currentGroup.netClassification.category,
+          networkName: currentGroup.netClassification.networkName
         });
       }
 
@@ -425,7 +437,10 @@ export function parseRouteSegments(
       ref: currentGroup.classification.ref,
       coordinates: segCoords.length > 0 ? segCoords : [currentGroup.startPoint],
       isBundesstrasse: currentGroup.classification.isBundesstrasse,
-      isCycleway: currentGroup.classification.isCycleway
+      isCycleway: currentGroup.classification.isCycleway,
+      dRoute: currentGroup.netClassification.dRoute,
+      networkCategory: currentGroup.netClassification.category,
+      networkName: currentGroup.netClassification.networkName
     });
   }
 
@@ -536,6 +551,7 @@ export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProf
     const cyclingMeters = wayTypeStats.radwegMeters + (wayTypeStats.nebenstrasseMeters * 0.7);
     const cyclingWayPercent = Math.min(99, Math.max(40, Math.round((cyclingMeters / Math.max(1, distance)) * 100)));
     const instructions = synthesizeTurnInstructions(coordinates, waypoints);
+    const networkBreakdown = calculateRouteNetworkBreakdown(segments, distance);
 
     const routeResult: BikeRoute = {
       id: `route-${Date.now()}`,
@@ -549,6 +565,7 @@ export async function fetchBRouterRoute(waypoints: Waypoint[], profile: BikeProf
       surfaceStats,
       wayTypeStats,
       detailedSurfaceStats,
+      networkBreakdown,
       segments,
       instructions,
       profile,
@@ -639,6 +656,11 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
   });
 
   const totalDist = Math.round(route.distance);
+  const seg1Coords = coordinates.slice(0, Math.floor(coordinates.length * 0.75)).map(c => [c.lat, c.lng] as [number, number]);
+  const seg2Coords = coordinates.slice(Math.floor(coordinates.length * 0.75)).map(c => [c.lat, c.lng] as [number, number]);
+  const seg1Net = classifyRouteSegmentNetwork(seg1Coords, '', true);
+  const seg2Net = classifyRouteSegmentNetwork(seg2Coords, '', false);
+
   const syntheticSegments: RouteSegment[] = [
     {
       id: 'osrm-seg-1',
@@ -649,9 +671,12 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
       wayTypeName: 'Fahrradweg / Radfahrstreifen',
       surface: 'asphalt',
       surfaceName: 'Asphalt',
-      coordinates: coordinates.slice(0, Math.floor(coordinates.length * 0.75)).map(c => [c.lat, c.lng]),
+      coordinates: seg1Coords,
       isBundesstrasse: false,
-      isCycleway: true
+      isCycleway: true,
+      dRoute: seg1Net.dRoute,
+      networkCategory: seg1Net.category,
+      networkName: seg1Net.networkName
     },
     {
       id: 'osrm-seg-2',
@@ -662,11 +687,16 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
       wayTypeName: 'Wohn- / Nebenstraße',
       surface: 'pflaster',
       surfaceName: 'Pflastersteine',
-      coordinates: coordinates.slice(Math.floor(coordinates.length * 0.75)).map(c => [c.lat, c.lng]),
+      coordinates: seg2Coords,
       isBundesstrasse: false,
-      isCycleway: false
+      isCycleway: false,
+      dRoute: seg2Net.dRoute,
+      networkCategory: seg2Net.category,
+      networkName: seg2Net.networkName
     }
   ];
+
+  const networkBreakdown = calculateRouteNetworkBreakdown(syntheticSegments, totalDist);
 
   return {
     id: `osrm-${Date.now()}`,
@@ -699,6 +729,7 @@ export async function fetchOsrmBikeRoute(waypoints: Waypoint[], profile: BikePro
       naturMeters: Math.round(totalDist * 0.02),
       sonstigeMeters: 0
     },
+    networkBreakdown,
     segments: syntheticSegments,
     instructions: instructions.length > 0 ? instructions : synthesizeTurnInstructions(coordinates, waypoints),
     profile,
